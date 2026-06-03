@@ -98,6 +98,76 @@ async fn inspect_path(path: String) -> PathInfo {
     .unwrap_or(PathInfo { files: 0, bytes: 0, free_space: 0, drive_total: 0 })
 }
 
+/// One immediate child of a folder, with its recursive total size — feeds the
+/// Sow treemap.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct DirEntry {
+    name: String,
+    path: String,
+    size: u64,
+    is_dir: bool,
+    ext: String,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct DirListing {
+    path: String,
+    total: u64,
+    entries: Vec<DirEntry>,
+}
+
+fn dir_size(p: &std::path::Path) -> u64 {
+    harvest_core::scan(p)
+        .map(|list| list.iter().map(|f| f.size).sum())
+        .unwrap_or(0)
+}
+
+/// List a folder's immediate children, each with its total recursive size,
+/// largest first. Drives the treemap; drill down by calling again on a subdir.
+#[tauri::command]
+async fn scan_dir(path: String) -> Result<DirListing, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = PathBuf::from(&path);
+        let mut entries: Vec<DirEntry> = Vec::new();
+        let mut total = 0u64;
+        let read = std::fs::read_dir(&base).map_err(|e| e.to_string())?;
+        for e in read.flatten() {
+            let p = e.path();
+            let Ok(md) = e.metadata() else { continue };
+            if md.is_dir() {
+                let size = dir_size(&p);
+                total += size;
+                entries.push(DirEntry {
+                    name: e.file_name().to_string_lossy().to_string(),
+                    path: p.display().to_string(),
+                    size,
+                    is_dir: true,
+                    ext: String::new(),
+                });
+            } else if md.is_file() {
+                total += md.len();
+                let ext = p
+                    .extension()
+                    .map(|x| x.to_string_lossy().to_lowercase())
+                    .unwrap_or_default();
+                entries.push(DirEntry {
+                    name: e.file_name().to_string_lossy().to_string(),
+                    path: p.display().to_string(),
+                    size: md.len(),
+                    is_dir: false,
+                    ext,
+                });
+            }
+        }
+        entries.sort_by(|a, b| b.size.cmp(&a.size));
+        Ok(DirListing { path, total, entries })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Copy request sent from the UI.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -461,6 +531,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_drives,
             inspect_path,
+            scan_dir,
             plan_harvest,
             start_harvest,
             cancel_harvest,
