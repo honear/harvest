@@ -113,9 +113,6 @@ function renderColumn(role: "source" | "dest") {
     items.forEach((path, i) => {
       const li = document.createElement("li");
       li.className = "drop-item";
-      const icon = document.createElement("div");
-      icon.className = "drop-item-icon";
-      icon.textContent = role === "source" ? "📁" : "🎯";
       const info = document.createElement("div");
       info.className = "drop-item-info";
       const title = document.createElement("div");
@@ -140,7 +137,7 @@ function renderColumn(role: "source" | "dest") {
         renderColumn(role);
         refreshActionState();
       };
-      li.append(icon, info, rm);
+      li.append(info, rm);
       el.appendChild(li);
     });
   }
@@ -314,7 +311,7 @@ async function refreshTransfers() {
   list.innerHTML = "";
   if (presets.length === 0) {
     list.innerHTML =
-      '<div class="muted transfer-empty"><span class="big">📦</span>No saved transfers yet.<br/>Build one on the sides, then “Save Transfer”.</div>';
+      '<div class="muted transfer-empty">No saved transfers yet.<br/>Build one on the sides, then “Save Transfer”.</div>';
     return;
   }
   for (const p of presets) {
@@ -329,7 +326,7 @@ async function refreshTransfers() {
     const head = document.createElement("div");
     head.className = "transfer-head";
     head.innerHTML = `<div class="transfer-name">${p.name}</div>
-      <div class="transfer-route muted">📁 ${srcLabel} → 🎯 ${dstLabel}</div>`;
+      <div class="transfer-route muted">${srcLabel} → ${dstLabel}</div>`;
     const meta = document.createElement("div");
     meta.className = "transfer-meta muted";
     meta.textContent = `${p.hash}${p.verify ? " · verify" : ""}${p.skipExisting ? " · skip-existing" : ""}${tmpl}`;
@@ -406,12 +403,16 @@ async function onHarvest() {
   }
 
   const fits = agg.destFree === 0 || agg.destFree >= agg.copyBytes;
+  const row = (dot: string, label: string, v: string) =>
+    `<div class="plan-row"><span class="label"><span class="dot ${dot}"></span>${label}</span><span class="v">${v}</span></div>`;
+  const plain = (label: string, v: string) =>
+    `<div class="plan-row"><span class="label">${label}</span><span class="v">${v}</span></div>`;
   $("plan-body").innerHTML =
-    `<div class="plan-row"><span>🆕 New files</span><span class="v">${agg.new}</span></div>` +
-    `<div class="plan-row"><span>✅ Already present</span><span class="v">${agg.present}</span></div>` +
-    `<div class="plan-row"><span>⚠️ Differ (will overwrite)</span><span class="v">${agg.conflict}</span></div>` +
-    `<div class="plan-row"><span>To copy</span><span class="v">${humanBytes(agg.copyBytes)}</span></div>` +
-    `<div class="plan-row"><span>Destination free</span><span class="v">${agg.destFree ? humanBytes(agg.destFree) : "—"}</span></div>`;
+    row("new", "New files", String(agg.new)) +
+    row("present", "Already present", String(agg.present)) +
+    row("conflict", "Differ (will overwrite)", String(agg.conflict)) +
+    plain("To copy", humanBytes(agg.copyBytes)) +
+    plain("Destination free", agg.destFree ? humanBytes(agg.destFree) : "—");
   const warn = $("plan-warn");
   if (!fits) {
     warn.hidden = false;
@@ -473,7 +474,7 @@ async function runQueue() {
       verifyFailures: agg.fails, errors: agg.errors,
       manifestPath: agg.manifest, journalPath: agg.journal, cancelled: agg.cancelled,
     });
-    setStatus(agg.cancelled ? "Cancelled." : success ? "🌱 Done." : "Finished with problems.", success ? "ok" : "error");
+    setStatus(agg.cancelled ? "Cancelled." : success ? "Done." : "Finished with problems.", success ? "ok" : "error");
   } catch (e) {
     setStatus(`Failed: ${e}`, "error");
   } finally {
@@ -524,7 +525,7 @@ async function openHistory() {
     const stateClass = e.success ? "history-ok" : "history-bad";
     const state = e.cancelled ? "cancelled" : e.success ? "ok" : "problems";
     div.innerHTML = `<div class="history-when">${when}</div>
-      <div class="history-route">📁 ${basename(e.source)} → 🎯 ${e.dests.map(basename).join(", ")}</div>
+      <div class="history-route">${basename(e.source)} → ${e.dests.map(basename).join(", ")}</div>
       <div class="history-stats">${e.copied} copied · ${e.skipped} skipped · ${humanBytes(e.bytes)} · <span class="${stateClass}">${state}</span></div>`;
     list.appendChild(div);
   }

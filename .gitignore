@@ -2,6 +2,11 @@
 **/*.rs.bk
 *.pdb
 
+# Frontend
+/node_modules
+/dist
+/src-tauri/gen/schemas
+
 # Editor / OS
 .DS_Store
 Thumbs.db

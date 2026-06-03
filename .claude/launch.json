@@ -4,7 +4,7 @@
     {
       "name": "harvest-ui",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "desktop", "run", "dev"],
+      "runtimeArgs": ["run", "dev"],
       "port": 1420
     }
   ]
