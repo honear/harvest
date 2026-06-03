@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = ["crates/harvest-core", "crates/harvest-cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/honear/harvest"
+
+[workspace.dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+md-5 = "0.10"
+walkdir = "2"
+rayon = "1"
+indicatif = "0.17"

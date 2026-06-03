@@ -1,0 +1,12 @@
+[package]
+name = "harvest-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+xxhash-rust.workspace = true
+md-5.workspace = true
+walkdir.workspace = true
+rayon.workspace = true

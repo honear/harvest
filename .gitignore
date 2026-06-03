@@ -1,0 +1,15 @@
+/target
+**/*.rs.bk
+*.pdb
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Test scratch
+/scratch
+
+# Local reference only — FreeFileSync is GPL; do not redistribute in this MIT repo
+/example
