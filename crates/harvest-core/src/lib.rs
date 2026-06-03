@@ -6,6 +6,7 @@
 
 pub mod copy;
 pub mod hash;
+pub mod manifest;
 pub mod scan;
 
 use std::path::{Path, PathBuf};
@@ -15,6 +16,7 @@ use rayon::prelude::*;
 
 pub use copy::{copy_file_verified, DestReport, FileReport};
 pub use hash::{hash_file, HashAlgo, Hasher};
+pub use manifest::{to_mhl, to_sidecar, ManifestEntry};
 pub use scan::{scan, SourceFile};
 
 /// 8 MiB streaming buffer — favors throughput on large media files.
@@ -31,7 +33,7 @@ pub struct HarvestOptions {
 impl Default for HarvestOptions {
     fn default() -> Self {
         Self {
-            algo: HashAlgo::Xxh3,
+            algo: HashAlgo::Xxh64,
             verify: true,
             buf_size: DEFAULT_BUF_SIZE,
         }

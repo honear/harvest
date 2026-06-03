@@ -8,11 +8,14 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use md5::{Digest, Md5};
 use xxhash_rust::xxh3::Xxh3;
+use xxhash_rust::xxh64::Xxh64;
 
 /// Which checksum algorithm to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HashAlgo {
-    /// xxHash3 (64-bit) — extremely fast, non-cryptographic integrity check.
+    /// xxHash64 — very fast and the media-industry / MHL standard. Default.
+    Xxh64,
+    /// xxHash3 (64-bit) — even faster, but not part of the classic MHL spec.
     Xxh3,
     /// MD5 — slower, but the de-facto standard for media hash lists / sidecars.
     Md5,
@@ -21,7 +24,8 @@ pub enum HashAlgo {
 impl HashAlgo {
     pub fn parse(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().as_str() {
-            "xxh3" | "xxhash" | "xxhash3" => Some(Self::Xxh3),
+            "xxh64" | "xxhash64" => Some(Self::Xxh64),
+            "xxh3" | "xxhash3" => Some(Self::Xxh3),
             "md5" => Some(Self::Md5),
             _ => None,
         }
@@ -29,14 +33,27 @@ impl HashAlgo {
 
     pub fn name(self) -> &'static str {
         match self {
+            Self::Xxh64 => "xxh64",
             Self::Xxh3 => "xxh3",
             Self::Md5 => "md5",
+        }
+    }
+
+    /// The element name used for this algorithm in a classic MHL hash list,
+    /// or `None` if MHL has no element for it (so a sidecar is used instead).
+    pub fn mhl_element(self) -> Option<&'static str> {
+        match self {
+            // Hex of the u64 is already big-endian, matching MHL's xxhash64be.
+            Self::Xxh64 => Some("xxhash64be"),
+            Self::Md5 => Some("md5"),
+            Self::Xxh3 => None,
         }
     }
 }
 
 /// A streaming hasher that can be fed bytes incrementally.
 pub enum Hasher {
+    Xxh64(Box<Xxh64>),
     Xxh3(Box<Xxh3>),
     Md5(Md5),
 }
@@ -44,6 +61,7 @@ pub enum Hasher {
 impl Hasher {
     pub fn new(algo: HashAlgo) -> Self {
         match algo {
+            HashAlgo::Xxh64 => Hasher::Xxh64(Box::new(Xxh64::new(0))),
             HashAlgo::Xxh3 => Hasher::Xxh3(Box::new(Xxh3::new())),
             HashAlgo::Md5 => Hasher::Md5(Md5::new()),
         }
@@ -52,6 +70,7 @@ impl Hasher {
     #[inline]
     pub fn update(&mut self, data: &[u8]) {
         match self {
+            Hasher::Xxh64(h) => h.update(data),
             Hasher::Xxh3(h) => h.update(data),
             Hasher::Md5(h) => h.update(data),
         }
@@ -59,6 +78,7 @@ impl Hasher {
 
     pub fn finalize_hex(self) -> String {
         match self {
+            Hasher::Xxh64(h) => format!("{:016x}", h.digest()),
             Hasher::Xxh3(h) => format!("{:016x}", h.digest()),
             Hasher::Md5(h) => {
                 let out = h.finalize();
@@ -90,9 +110,17 @@ mod tests {
     }
 
     #[test]
-    fn xxh3_is_deterministic_and_content_sensitive() {
-        assert_eq!(hash_bytes(HashAlgo::Xxh3, b"abc"), hash_bytes(HashAlgo::Xxh3, b"abc"));
-        assert_ne!(hash_bytes(HashAlgo::Xxh3, b"abc"), hash_bytes(HashAlgo::Xxh3, b"abd"));
+    fn xxh64_known_answer() {
+        // xxHash64 of empty input with seed 0 (canonical test vector).
+        assert_eq!(hash_bytes(HashAlgo::Xxh64, b""), "ef46db3751d8e999");
+    }
+
+    #[test]
+    fn fast_hashes_are_deterministic_and_content_sensitive() {
+        for algo in [HashAlgo::Xxh64, HashAlgo::Xxh3] {
+            assert_eq!(hash_bytes(algo, b"abc"), hash_bytes(algo, b"abc"));
+            assert_ne!(hash_bytes(algo, b"abc"), hash_bytes(algo, b"abd"));
+        }
     }
 
     #[test]

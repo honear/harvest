@@ -11,7 +11,8 @@ repository = "https://github.com/honear/harvest"
 [workspace.dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
-xxhash-rust = { version = "0.8", features = ["xxh3"] }
+xxhash-rust = { version = "0.8", features = ["xxh3", "xxh64"] }
+time = { version = "0.3", features = ["formatting"] }
 md-5 = "0.10"
 walkdir = "2"
 rayon = "1"

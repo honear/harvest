@@ -13,3 +13,4 @@ harvest-core = { path = "../harvest-core" }
 anyhow.workspace = true
 clap.workspace = true
 indicatif.workspace = true
+time.workspace = true
