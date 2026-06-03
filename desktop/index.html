@@ -23,6 +23,7 @@
             <button data-act="options">⚙️ Options…</button>
             <div class="menu-sep"></div>
             <button data-act="manifests">📄 Open destination folder</button>
+            <button data-act="history">🕘 History</button>
             <button data-act="about">🌱 About Harvest</button>
           </div>
         </div>
@@ -67,6 +68,7 @@
           </div>
           <span id="progress-current" class="muted"></span>
         </div>
+        <button id="cancel" class="small" hidden>✕ Cancel</button>
         <button id="start" class="primary">🌱 Harvest</button>
       </footer>
     </div>
@@ -104,6 +106,13 @@
             <label>Max size<input id="max-size" placeholder="e.g. 4GB" /></label>
             <label>Modified after<input id="newer-than" placeholder="YYYY-MM-DD" /></label>
             <label>Modified before<input id="older-than" placeholder="YYYY-MM-DD" /></label>
+          </div>
+
+          <h3>🚫 Exclusions</h3>
+          <ul id="exclude-list" class="exclude-list"></ul>
+          <div class="exclude-actions">
+            <button id="add-exclude-folder" class="small">📁 Exclude folder</button>
+            <button id="add-exclude-file" class="small">📄 Exclude file</button>
           </div>
 
           <h3>🗂️ Folder template</h3>
@@ -146,6 +155,33 @@
         </p>
         <button id="close-about" class="primary small" style="margin-top: 18px">Close</button>
       </div>
+    </div>
+
+    <!-- pre-flight compare dialog -->
+    <div id="plan-overlay" class="overlay center" hidden>
+      <div class="dialog plan-dialog">
+        <h2>Ready to harvest?</h2>
+        <div id="plan-body" class="plan-body muted"></div>
+        <div id="plan-warn" class="plan-warn" hidden></div>
+        <div class="plan-actions">
+          <button id="plan-cancel" class="ghost">Cancel</button>
+          <button id="plan-confirm" class="primary small">🌱 Harvest</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- history drawer -->
+    <div id="history-overlay" class="overlay" hidden>
+      <aside class="drawer">
+        <div class="drawer-head">
+          <h2>🕘 History</h2>
+          <div style="display: flex; gap: 8px">
+            <button id="clear-history" class="ghost small">Clear</button>
+            <button id="close-history" class="ghost">Close</button>
+          </div>
+        </div>
+        <div class="drawer-body"><div id="history-list"></div></div>
+      </aside>
     </div>
   </body>
 </html>

@@ -4,7 +4,7 @@
 //! case-insensitive; an explicit exclude always beats an include.
 
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use time::{Date, Month, Time};
@@ -26,6 +26,10 @@ pub struct Filter {
     pub newer_than_ns: Option<i128>,
     /// Keep only files modified strictly before this instant (ns since Unix epoch).
     pub older_than_ns: Option<i128>,
+    /// Absolute paths (files or folders) to exclude. A file is dropped if any
+    /// of these is a prefix of its absolute path. Populated from the UI's
+    /// exclusion list / the Sow visualizer.
+    pub exclude_paths: Vec<PathBuf>,
 }
 
 impl Filter {
@@ -53,6 +57,7 @@ impl Filter {
             max_size: opt_str(max_size).map(parse_size).transpose()?,
             newer_than_ns: opt_str(newer_than).map(parse_date_ns).transpose()?,
             older_than_ns: opt_str(older_than).map(parse_date_ns).transpose()?,
+            exclude_paths: Vec::new(),
         })
     }
 
@@ -64,10 +69,16 @@ impl Filter {
             && self.max_size.is_none()
             && self.newer_than_ns.is_none()
             && self.older_than_ns.is_none()
+            && self.exclude_paths.is_empty()
     }
 
     /// Whether a file passes every active rule.
     pub fn accepts(&self, f: &SourceFile) -> bool {
+        for ex in &self.exclude_paths {
+            if f.abs.starts_with(ex) {
+                return false;
+            }
+        }
         if let Some(min) = self.min_size {
             if f.size < min {
                 return false;
@@ -196,6 +207,23 @@ mod tests {
         };
         assert!(f.accepts(&file("a.mov", 1, 0)));
         assert!(!f.accepts(&file("a.tmp", 1, 0)));
+    }
+
+    #[test]
+    fn exclude_paths_drop_subtrees() {
+        let f = Filter {
+            exclude_paths: vec![PathBuf::from("/card/PRIVATE"), PathBuf::from("/card/junk.tmp")],
+            ..Default::default()
+        };
+        let mut keep = file("/card/CLIP/a.mp4", 1, 0);
+        keep.abs = PathBuf::from("/card/CLIP/a.mp4");
+        let mut drop_dir = file("/card/PRIVATE/x.xml", 1, 0);
+        drop_dir.abs = PathBuf::from("/card/PRIVATE/x.xml");
+        let mut drop_file = file("/card/junk.tmp", 1, 0);
+        drop_file.abs = PathBuf::from("/card/junk.tmp");
+        assert!(f.accepts(&keep));
+        assert!(!f.accepts(&drop_dir));
+        assert!(!f.accepts(&drop_file));
     }
 
     #[test]

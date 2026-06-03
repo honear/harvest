@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
 
-// ---- types mirroring the Rust payloads ----------------------------------
+// ---- types ----------------------------------------------------------------
 
 interface PathInfo {
   files: number;
@@ -11,11 +11,16 @@ interface PathInfo {
   freeSpace: number;
   driveTotal: number;
 }
+interface PlanResult {
+  total: number;
+  new: number;
+  present: number;
+  conflict: number;
+  copyBytes: number;
+  destFree: number;
+  fits: boolean;
+}
 interface Planned {
-  totalScanned: number;
-  kept: number;
-  toCopy: number;
-  skipped: number;
   copyBytes: number;
 }
 interface Progress {
@@ -32,6 +37,17 @@ interface Done {
   errors: string[];
   manifestPath: string | null;
   journalPath: string;
+  cancelled: boolean;
+}
+interface HistoryEntry {
+  when: number;
+  source: string;
+  dests: string[];
+  copied: number;
+  skipped: number;
+  bytes: number;
+  success: boolean;
+  cancelled: boolean;
 }
 interface Preset {
   name: string;
@@ -46,6 +62,7 @@ interface Preset {
   maxSize?: string | null;
   newerThan?: string | null;
   olderThan?: string | null;
+  excludePaths?: string[];
   destTemplate?: string | null;
   project?: string | null;
   writeManifest: boolean;
@@ -71,16 +88,16 @@ function humanBytes(n: number): string {
   }
   return u === 0 ? `${n} B` : `${size.toFixed(size < 10 ? 2 : 0)} ${units[u]}`;
 }
-
 function basename(p: string): string {
   const parts = p.replace(/[\\/]+$/, "").split(/[\\/]/);
   return parts[parts.length - 1] || p;
 }
 
-// ---- model: sources & destinations ---------------------------------------
+// ---- model ----------------------------------------------------------------
 
 let sources: string[] = [];
 let destinations: string[] = [];
+let excludePaths: string[] = [];
 const infoCache: Record<string, PathInfo> = {};
 
 function renderColumn(role: "source" | "dest") {
@@ -118,11 +135,9 @@ function renderColumn(role: "source" | "dest") {
       const rm = document.createElement("button");
       rm.className = "ghost danger remove";
       rm.textContent = "✕";
-      rm.title = "Remove";
       rm.onclick = () => {
         items.splice(i, 1);
         renderColumn(role);
-        renderColumnInfo(role);
         refreshActionState();
       };
       li.append(icon, info, rm);
@@ -160,11 +175,10 @@ function renderColumnInfo(role: "source" | "dest") {
 
 async function inspect(path: string, role: "source" | "dest") {
   try {
-    const info = await invoke<PathInfo>("inspect_path", { path });
-    infoCache[path] = info;
+    infoCache[path] = await invoke<PathInfo>("inspect_path", { path });
     renderColumn(role);
   } catch {
-    /* preview/no-tauri: ignore */
+    /* preview/no-tauri */
   }
 }
 
@@ -175,6 +189,33 @@ function addPath(role: "source" | "dest", path: string) {
     renderColumn(role);
     refreshActionState();
     inspect(path, role);
+  }
+}
+
+// ---- exclusions -----------------------------------------------------------
+
+function renderExclusions() {
+  const el = $("exclude-list");
+  el.innerHTML = "";
+  excludePaths.forEach((p, i) => {
+    const li = document.createElement("li");
+    const span = document.createElement("span");
+    span.textContent = p;
+    const rm = document.createElement("button");
+    rm.className = "ghost danger remove";
+    rm.textContent = "✕";
+    rm.onclick = () => {
+      excludePaths.splice(i, 1);
+      renderExclusions();
+    };
+    li.append(span, rm);
+    el.appendChild(li);
+  });
+}
+function addExclusion(p: string) {
+  if (p && !excludePaths.includes(p)) {
+    excludePaths.push(p);
+    renderExclusions();
   }
 }
 
@@ -196,6 +237,8 @@ function updateProgress(done: number, total: number, current: string) {
 function refreshActionState() {
   const ready = sources.length > 0 && destinations.length > 0 && !running;
   ($("start") as HTMLButtonElement).disabled = !ready;
+  ($("cancel") as HTMLElement).hidden = !running;
+  ($("start") as HTMLElement).hidden = running;
 }
 
 // ---- options gathering ----------------------------------------------------
@@ -211,6 +254,7 @@ function gatherCommon() {
     maxSize: orNull(val("max-size")),
     newerThan: orNull(val("newer-than")),
     olderThan: orNull(val("older-than")),
+    excludePaths: [...excludePaths],
     destTemplate: orNull(val("dest-template")),
     project: orNull(val("project")),
     writeManifest: checked("manifest"),
@@ -230,6 +274,8 @@ function applyOptions(p: Preset) {
   setVal("older-than", p.olderThan ?? "");
   setVal("dest-template", p.destTemplate ?? "");
   setVal("project", p.project ?? "");
+  excludePaths = [...(p.excludePaths ?? [])];
+  renderExclusions();
 }
 
 function loadTransfer(p: Preset) {
@@ -247,13 +293,15 @@ function loadTransfer(p: Preset) {
 function clearAll() {
   sources = [];
   destinations = [];
+  excludePaths = [];
   renderColumn("source");
   renderColumn("dest");
+  renderExclusions();
   setStatus("Cleared. Add a source and a destination to begin.");
   refreshActionState();
 }
 
-// ---- saved transfers (center panel) ---------------------------------------
+// ---- saved transfers ------------------------------------------------------
 
 async function refreshTransfers() {
   const list = $("transfer-list");
@@ -272,23 +320,19 @@ async function refreshTransfers() {
   for (const p of presets) {
     const card = document.createElement("div");
     card.className = "transfer-card";
-
     const srcLabel = (p.sources ?? []).map(basename).join(", ") || "—";
     const dstLabel =
       (p.dests ?? []).length > 1
         ? `${basename(p.dests[0])} +${p.dests.length - 1}`
         : (p.dests ?? []).map(basename).join(", ") || "—";
     const tmpl = p.destTemplate ? ` · 🗂️ ${p.destTemplate}` : "";
-
     const head = document.createElement("div");
     head.className = "transfer-head";
     head.innerHTML = `<div class="transfer-name">${p.name}</div>
       <div class="transfer-route muted">📁 ${srcLabel} → 🎯 ${dstLabel}</div>`;
-
     const meta = document.createElement("div");
     meta.className = "transfer-meta muted";
     meta.textContent = `${p.hash}${p.verify ? " · verify" : ""}${p.skipExisting ? " · skip-existing" : ""}${tmpl}`;
-
     const actions = document.createElement("div");
     actions.className = "transfer-actions";
     const runBtn = document.createElement("button");
@@ -296,7 +340,7 @@ async function refreshTransfers() {
     runBtn.textContent = "▶ Run";
     runBtn.onclick = () => {
       loadTransfer(p);
-      start();
+      onHarvest();
     };
     const loadBtn = document.createElement("button");
     loadBtn.className = "ghost small";
@@ -311,7 +355,6 @@ async function refreshTransfers() {
       await refreshTransfers();
     };
     actions.append(runBtn, loadBtn, delBtn);
-
     card.append(head, meta, actions);
     list.appendChild(card);
   }
@@ -324,12 +367,7 @@ async function saveTransfer() {
   }
   const name = prompt("Save this transfer as:");
   if (!name) return;
-  const preset: Preset = {
-    name,
-    sources: [...sources],
-    dests: [...destinations],
-    ...gatherCommon(),
-  };
+  const preset: Preset = { name, sources: [...sources], dests: [...destinations], ...gatherCommon() };
   try {
     await invoke("save_preset", { preset });
     await refreshTransfers();
@@ -337,6 +375,51 @@ async function saveTransfer() {
   } catch (e) {
     setStatus(`Could not save: ${e}`, "error");
   }
+}
+
+// ---- pre-flight compare ---------------------------------------------------
+
+async function onHarvest() {
+  if (running) return;
+  if (sources.length === 0 || destinations.length === 0) {
+    setStatus("Add at least one source and one destination.", "error");
+    return;
+  }
+  // Aggregate a plan across all sources.
+  const agg = { total: 0, new: 0, present: 0, conflict: 0, copyBytes: 0, destFree: 0 };
+  try {
+    for (const s of sources) {
+      const req = { source: s, dests: destinations, resume: checked("resume"), ...gatherCommon() };
+      const p = await invoke<PlanResult>("plan_harvest", { req });
+      agg.total += p.total;
+      agg.new += p.new;
+      agg.present += p.present;
+      agg.conflict += p.conflict;
+      agg.copyBytes += p.copyBytes;
+      agg.destFree = p.destFree;
+    }
+  } catch (e) {
+    // If planning fails, fall back to running directly.
+    setStatus(`Compare skipped: ${e}`);
+    runQueue();
+    return;
+  }
+
+  const fits = agg.destFree === 0 || agg.destFree >= agg.copyBytes;
+  $("plan-body").innerHTML =
+    `<div class="plan-row"><span>🆕 New files</span><span class="v">${agg.new}</span></div>` +
+    `<div class="plan-row"><span>✅ Already present</span><span class="v">${agg.present}</span></div>` +
+    `<div class="plan-row"><span>⚠️ Differ (will overwrite)</span><span class="v">${agg.conflict}</span></div>` +
+    `<div class="plan-row"><span>To copy</span><span class="v">${humanBytes(agg.copyBytes)}</span></div>` +
+    `<div class="plan-row"><span>Destination free</span><span class="v">${agg.destFree ? humanBytes(agg.destFree) : "—"}</span></div>`;
+  const warn = $("plan-warn");
+  if (!fits) {
+    warn.hidden = false;
+    warn.textContent = `Not enough free space: need ${humanBytes(agg.copyBytes)}, only ${humanBytes(agg.destFree)} free.`;
+  } else {
+    warn.hidden = true;
+  }
+  ($("plan-overlay") as HTMLElement).hidden = false;
 }
 
 // ---- running the harvest (sequential queue over sources) ------------------
@@ -356,26 +439,17 @@ function harvestOne(source: string): Promise<Done> {
   });
 }
 
-async function start() {
+async function runQueue() {
   if (running) return;
-  if (sources.length === 0 || destinations.length === 0) {
-    setStatus("Add at least one source and one destination.", "error");
-    return;
-  }
-
   running = true;
   refreshActionState();
   showProgress(true);
   ($("result-overlay") as HTMLElement).hidden = true;
 
   const agg = {
-    copied: 0,
-    skipped: 0,
-    bytes: 0,
-    errors: [] as string[],
-    fails: [] as string[],
-    manifest: null as string | null,
-    journal: "",
+    copied: 0, skipped: 0, bytes: 0,
+    errors: [] as string[], fails: [] as string[],
+    manifest: null as string | null, journal: "", cancelled: false,
   };
   try {
     for (let i = 0; i < sources.length; i++) {
@@ -388,19 +462,18 @@ async function start() {
       agg.fails.push(...d.verifyFailures);
       if (d.manifestPath) agg.manifest = d.manifestPath;
       agg.journal = d.journalPath;
+      if (d.cancelled) {
+        agg.cancelled = true;
+        break;
+      }
     }
-    const success = agg.errors.length === 0 && agg.fails.length === 0;
+    const success = !agg.cancelled && agg.errors.length === 0 && agg.fails.length === 0;
     showResult({
-      success,
-      copied: agg.copied,
-      skipped: agg.skipped,
-      copiedBytes: agg.bytes,
-      verifyFailures: agg.fails,
-      errors: agg.errors,
-      manifestPath: agg.manifest,
-      journalPath: agg.journal,
+      success, copied: agg.copied, skipped: agg.skipped, copiedBytes: agg.bytes,
+      verifyFailures: agg.fails, errors: agg.errors,
+      manifestPath: agg.manifest, journalPath: agg.journal, cancelled: agg.cancelled,
     });
-    setStatus(success ? "🌱 Done." : "Finished with problems.", success ? "ok" : "error");
+    setStatus(agg.cancelled ? "Cancelled." : success ? "🌱 Done." : "Finished with problems.", success ? "ok" : "error");
   } catch (e) {
     setStatus(`Failed: ${e}`, "error");
   } finally {
@@ -412,17 +485,50 @@ async function start() {
 
 function showResult(d: Done) {
   ($("result-overlay") as HTMLElement).hidden = false;
-  $("result-title").textContent = d.success ? "✓ Harvest complete" : "✗ Finished with problems";
+  $("result-title").textContent = d.cancelled
+    ? "Cancelled"
+    : d.success
+      ? "✓ Harvest complete"
+      : "✗ Finished with problems";
   const summary = $("result-summary");
   summary.innerHTML = d.success
     ? `${d.copied} copied, ${d.skipped} already present — <strong>${humanBytes(d.copiedBytes)}</strong> verified across ${destinations.length} destination(s).`
-    : `${d.errors.length} error(s), ${d.verifyFailures.length} verification failure(s).`;
+    : d.cancelled
+      ? `Stopped after ${d.copied} file(s) copied. Re-run with Resume to continue.`
+      : `${d.errors.length} error(s), ${d.verifyFailures.length} verification failure(s).`;
   const detail: string[] = [];
   if (d.manifestPath) detail.push(`Manifest: ${d.manifestPath}`);
   if (d.errors.length) detail.push("", "Errors:", ...d.errors.map((e) => "  " + e));
   if (d.verifyFailures.length) detail.push("", "Verification failed:", ...d.verifyFailures.map((e) => "  " + e));
-  if (!d.success) detail.push("", `Re-run with Resume enabled to continue (journal: ${d.journalPath}).`);
+  if (!d.success && d.journalPath) detail.push("", `Journal: ${d.journalPath}`);
   $("result-detail").textContent = detail.join("\n");
+}
+
+// ---- history --------------------------------------------------------------
+
+async function openHistory() {
+  const list = $("history-list");
+  let entries: HistoryEntry[] = [];
+  try {
+    entries = await invoke<HistoryEntry[]>("list_history");
+  } catch {
+    entries = [];
+  }
+  list.innerHTML = entries.length
+    ? ""
+    : '<div class="muted" style="text-align:center;padding:30px">No transfers yet.</div>';
+  for (const e of entries) {
+    const div = document.createElement("div");
+    div.className = "history-item";
+    const when = new Date(e.when * 1000).toLocaleString();
+    const stateClass = e.success ? "history-ok" : "history-bad";
+    const state = e.cancelled ? "cancelled" : e.success ? "ok" : "problems";
+    div.innerHTML = `<div class="history-when">${when}</div>
+      <div class="history-route">📁 ${basename(e.source)} → 🎯 ${e.dests.map(basename).join(", ")}</div>
+      <div class="history-stats">${e.copied} copied · ${e.skipped} skipped · ${humanBytes(e.bytes)} · <span class="${stateClass}">${state}</span></div>`;
+    list.appendChild(div);
+  }
+  ($("history-overlay") as HTMLElement).hidden = false;
 }
 
 // ---- menu / dialogs -------------------------------------------------------
@@ -434,12 +540,8 @@ function toggleMenu(show?: boolean) {
   const m = $("menu-pop");
   m.hidden = show === undefined ? !m.hidden : !show;
 }
-
 async function openDestinationFolder() {
-  if (destinations.length === 0) {
-    setStatus("No destination to open.", "error");
-    return;
-  }
+  if (destinations.length === 0) return setStatus("No destination to open.", "error");
   try {
     await openPath(destinations[0]);
   } catch (e) {
@@ -452,6 +554,7 @@ async function openDestinationFolder() {
 window.addEventListener("DOMContentLoaded", async () => {
   renderColumn("source");
   renderColumn("dest");
+  renderExclusions();
   refreshActionState();
   await refreshTransfers();
 
@@ -463,15 +566,38 @@ window.addEventListener("DOMContentLoaded", async () => {
     const f = await open({ directory: true, multiple: false });
     if (typeof f === "string") addPath("dest", f);
   };
-  $("start").onclick = start;
+  $("add-exclude-folder").onclick = async () => {
+    const f = await open({ directory: true, multiple: false });
+    if (typeof f === "string") addExclusion(f);
+  };
+  $("add-exclude-file").onclick = async () => {
+    const f = await open({ directory: false, multiple: false });
+    if (typeof f === "string") addExclusion(f);
+  };
+
+  $("start").onclick = onHarvest;
+  $("cancel").onclick = () => {
+    invoke("cancel_harvest").catch(() => {});
+    setStatus("Cancelling…");
+  };
+  $("plan-confirm").onclick = () => {
+    toggleOverlay("plan-overlay", false);
+    runQueue();
+  };
+  $("plan-cancel").onclick = () => toggleOverlay("plan-overlay", false);
+
   $("save-transfer").onclick = saveTransfer;
   $("new-transfer").onclick = clearAll;
   $("open-options").onclick = () => toggleOverlay("options-overlay", true);
   $("close-options").onclick = () => toggleOverlay("options-overlay", false);
   $("close-result").onclick = () => toggleOverlay("result-overlay", false);
   $("close-about").onclick = () => toggleOverlay("about-overlay", false);
+  $("close-history").onclick = () => toggleOverlay("history-overlay", false);
+  $("clear-history").onclick = async () => {
+    await invoke("clear_history").catch(() => {});
+    openHistory();
+  };
 
-  // hamburger menu
   $("menu-btn").onclick = (e) => {
     e.stopPropagation();
     toggleMenu();
@@ -486,18 +612,18 @@ window.addEventListener("DOMContentLoaded", async () => {
         case "save": saveTransfer(); break;
         case "options": toggleOverlay("options-overlay", true); break;
         case "manifests": openDestinationFolder(); break;
+        case "history": openHistory(); break;
         case "about": toggleOverlay("about-overlay", true); break;
       }
     };
   });
 
-  for (const id of ["options-overlay", "result-overlay", "about-overlay"]) {
+  for (const id of ["options-overlay", "result-overlay", "about-overlay", "plan-overlay", "history-overlay"]) {
     $(id).addEventListener("click", (e) => {
       if (e.target === $(id)) toggleOverlay(id, false);
     });
   }
 
-  // backend events
   await listen<Planned>("harvest:planned", (e) => {
     planTotal = e.payload.copyBytes || 1;
     updateProgress(0, planTotal, "");
@@ -519,14 +645,9 @@ window.addEventListener("DOMContentLoaded", async () => {
       const r = resolveCurrent;
       resolveCurrent = null;
       r({
-        success: false,
-        copied: 0,
-        skipped: 0,
-        copiedBytes: 0,
-        verifyFailures: [],
-        errors: [String(e.payload)],
-        manifestPath: null,
-        journalPath: "",
+        success: false, copied: 0, skipped: 0, copiedBytes: 0,
+        verifyFailures: [], errors: [String(e.payload)],
+        manifestPath: null, journalPath: "", cancelled: false,
       });
     }
   });

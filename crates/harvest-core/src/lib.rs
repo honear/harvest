@@ -13,7 +13,7 @@ pub mod run;
 pub mod scan;
 pub mod template;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::Result;
 use rayon::prelude::*;
@@ -24,7 +24,8 @@ pub use hash::{hash_file, HashAlgo, Hasher};
 pub use journal::{Journal, JournalHeader, JournalRecord, JOURNAL_VERSION};
 pub use manifest::{to_mhl, to_sidecar, ManifestEntry};
 pub use run::{
-    forward_slash, run_harvest, HarvestConfig, HarvestEvent, HarvestOutcome, JOURNAL_NAME,
+    forward_slash, plan, run_harvest, HarvestConfig, HarvestEvent, HarvestOutcome, HarvestPlan,
+    JOURNAL_NAME,
 };
 pub use scan::{mtime_ns, scan, SourceFile};
 pub use template::{render as render_template, RenderCtx};
@@ -52,22 +53,28 @@ impl Default for HarvestOptions {
 
 /// Copy a pre-scanned set of files into each destination root in parallel,
 /// preserving the relative tree. `on_done` fires once per completed file
-/// (from worker threads, so it must be `Sync`).
+/// (from worker threads, so it must be `Sync`). If `cancel` becomes true,
+/// files not yet started are skipped (in-flight ones finish).
 pub fn harvest_files(
     files: &[SourceFile],
     dest_roots: &[PathBuf],
     opts: &HarvestOptions,
+    cancel: &std::sync::atomic::AtomicBool,
     on_done: impl Fn(&FileReport) + Sync,
 ) -> Vec<Result<FileReport>> {
+    use std::sync::atomic::Ordering;
     files
         .par_iter()
-        .map(|f| {
+        .filter_map(|f| {
+            if cancel.load(Ordering::Acquire) {
+                return None;
+            }
             // Write to the templated path if set, else mirror the source tree.
             let target_rel = f.dest_rel.as_ref().unwrap_or(&f.rel);
             let dests: Vec<PathBuf> = dest_roots.iter().map(|root| root.join(target_rel)).collect();
             let result =
                 copy_file_verified(&f.abs, &dests, opts.algo, opts.verify, opts.buf_size);
-            match result {
+            Some(match result {
                 Ok(mut report) => {
                     // Carry source identity the copy layer didn't know about.
                     report.rel = f.rel.clone();
@@ -77,18 +84,7 @@ pub fn harvest_files(
                     Ok(report)
                 }
                 Err(e) => Err(e),
-            }
+            })
         })
         .collect()
-}
-
-/// Convenience: scan `source` then harvest every file into the destinations.
-pub fn harvest_tree(
-    source: &Path,
-    dest_roots: &[PathBuf],
-    opts: &HarvestOptions,
-    on_done: impl Fn(&FileReport) + Sync,
-) -> Result<Vec<Result<FileReport>>> {
-    let files = scan(source)?;
-    Ok(harvest_files(&files, dest_roots, opts, on_done))
 }

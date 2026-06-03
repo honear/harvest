@@ -6,11 +6,33 @@
 //! config directory.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_notification::NotificationExt;
 
-use harvest_core::{run_harvest, Filter, HarvestConfig, HarvestEvent, HashAlgo};
+use harvest_core::{plan, run_harvest, Filter, HarvestConfig, HarvestEvent, HashAlgo};
+
+/// Shared cancel flag, set by `cancel_harvest`, watched by the running transfer.
+#[derive(Default)]
+struct Cancel(Arc<AtomicBool>);
+
+/// Compute the free + total bytes of the drive that contains `path`.
+fn drive_space(path: &str) -> (u64, u64) {
+    let disks = sysinfo::Disks::new_with_refreshed_list();
+    let needle = path.to_lowercase();
+    let mut best: Option<(usize, u64, u64)> = None;
+    for d in disks.iter() {
+        let mount = d.mount_point().to_string_lossy().to_lowercase();
+        if needle.starts_with(&mount) && best.map_or(true, |(len, _, _)| mount.len() > len) {
+            best = Some((mount.len(), d.available_space(), d.total_space()));
+        }
+    }
+    best.map(|(_, f, t)| (f, t)).unwrap_or((0, 0))
+}
 
 /// A mounted drive/volume shown in the center "Disks" panel.
 #[derive(Serialize, Clone)]
@@ -69,17 +91,7 @@ async fn inspect_path(path: String) -> PathInfo {
             files = list.len() as u64;
             bytes = list.iter().map(|f| f.size).sum();
         }
-        // Find the drive whose mount point is the longest prefix of `path`.
-        let disks = sysinfo::Disks::new_with_refreshed_list();
-        let needle = path.to_lowercase();
-        let mut best: Option<(usize, u64, u64)> = None;
-        for d in disks.iter() {
-            let mount = d.mount_point().to_string_lossy().to_lowercase();
-            if needle.starts_with(&mount) && best.map_or(true, |(len, _, _)| mount.len() > len) {
-                best = Some((mount.len(), d.available_space(), d.total_space()));
-            }
-        }
-        let (free_space, drive_total) = best.map(|(_, f, t)| (f, t)).unwrap_or((0, 0));
+        let (free_space, drive_total) = drive_space(&path);
         PathInfo { files, bytes, free_space, drive_total }
     })
     .await
@@ -102,6 +114,8 @@ pub struct CopyRequest {
     pub max_size: Option<String>,
     pub newer_than: Option<String>,
     pub older_than: Option<String>,
+    #[serde(default)]
+    pub exclude_paths: Vec<String>,
     pub dest_template: Option<String>,
     pub project: Option<String>,
     pub write_manifest: bool,
@@ -139,6 +153,21 @@ struct DonePayload {
     errors: Vec<String>,
     manifest_path: Option<String>,
     journal_path: String,
+    cancelled: bool,
+}
+
+/// One past run, persisted to history.json.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HistoryEntry {
+    when: u64, // unix seconds
+    source: String,
+    dests: Vec<String>,
+    copied: usize,
+    skipped: usize,
+    bytes: u64,
+    success: bool,
+    cancelled: bool,
 }
 
 /// A saved set of options (everything except the source/destinations the user
@@ -168,6 +197,8 @@ pub struct Preset {
     #[serde(default)]
     pub older_than: Option<String>,
     #[serde(default)]
+    pub exclude_paths: Vec<String>,
+    #[serde(default)]
     pub dest_template: Option<String>,
     #[serde(default)]
     pub project: Option<String>,
@@ -182,7 +213,7 @@ fn default_true() -> bool {
 fn build_config(req: CopyRequest) -> anyhow::Result<HarvestConfig> {
     let algo = HashAlgo::parse(&req.hash)
         .ok_or_else(|| anyhow::anyhow!("unknown hash algorithm '{}'", req.hash))?;
-    let filter = Filter::build(
+    let mut filter = Filter::build(
         req.include_ext.as_deref(),
         req.exclude_ext.as_deref(),
         req.min_size.as_deref(),
@@ -190,6 +221,7 @@ fn build_config(req: CopyRequest) -> anyhow::Result<HarvestConfig> {
         req.newer_than.as_deref(),
         req.older_than.as_deref(),
     )?;
+    filter.exclude_paths = req.exclude_paths.iter().map(PathBuf::from).collect();
     Ok(HarvestConfig {
         source: PathBuf::from(req.source),
         dests: req.dests.into_iter().map(PathBuf::from).collect(),
@@ -206,19 +238,112 @@ fn build_config(req: CopyRequest) -> anyhow::Result<HarvestConfig> {
     })
 }
 
+/// Pre-flight compare: what a harvest would do, plus the destination's free
+/// space and whether the copy fits. Does not write anything.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct PlanResult {
+    total: usize,
+    new: usize,
+    present: usize,
+    conflict: usize,
+    copy_bytes: u64,
+    dest_free: u64,
+    fits: bool,
+}
+
+#[tauri::command]
+async fn plan_harvest(req: CopyRequest) -> Result<PlanResult, String> {
+    let first_dest = req.dests.first().cloned().unwrap_or_default();
+    let cfg = build_config(req).map_err(|e| format!("{e:#}"))?;
+    let p = tauri::async_runtime::spawn_blocking(move || plan(&cfg))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("{e:#}"))?;
+    let (dest_free, _) = drive_space(&first_dest);
+    let fits = dest_free == 0 || dest_free >= p.copy_bytes;
+    Ok(PlanResult {
+        total: p.total,
+        new: p.new,
+        present: p.present,
+        conflict: p.conflict,
+        copy_bytes: p.copy_bytes,
+        dest_free,
+        fits,
+    })
+}
+
+#[tauri::command]
+fn cancel_harvest(cancel: State<Cancel>) {
+    cancel.0.store(true, Ordering::Release);
+}
+
+fn now_secs() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+fn history_path(app: &AppHandle) -> anyhow::Result<PathBuf> {
+    let dir = app.path().app_config_dir()?;
+    std::fs::create_dir_all(&dir).ok();
+    Ok(dir.join("history.json"))
+}
+
+fn append_history(app: &AppHandle, entry: HistoryEntry) {
+    let Ok(path) = history_path(app) else { return };
+    let mut entries: Vec<HistoryEntry> = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    entries.insert(0, entry);
+    entries.truncate(100);
+    if let Ok(json) = serde_json::to_string_pretty(&entries) {
+        let _ = std::fs::write(path, json);
+    }
+}
+
+#[tauri::command]
+fn list_history(app: AppHandle) -> Vec<HistoryEntry> {
+    history_path(&app)
+        .ok()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+fn clear_history(app: AppHandle) {
+    if let Ok(path) = history_path(&app) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 /// Start a harvest. Returns immediately; progress arrives via the
 /// `harvest:planned`, `harvest:progress`, `harvest:done`, and `harvest:failed`
 /// events.
 #[tauri::command]
-fn start_harvest(app: AppHandle, req: CopyRequest) -> Result<(), String> {
+fn start_harvest(app: AppHandle, cancel: State<Cancel>, req: CopyRequest) -> Result<(), String> {
+    let source = req.source.clone();
+    let dests = req.dests.clone();
     let cfg = build_config(req).map_err(|e| format!("{e:#}"))?;
 
+    // Fresh cancel flag for this run.
+    let flag = cancel.0.clone();
+    flag.store(false, Ordering::Release);
+
     std::thread::spawn(move || {
+        // Keep the machine awake for the duration of the transfer (best-effort).
+        let _awake = keepawake::Builder::default()
+            .display(false)
+            .idle(true)
+            .sleep(true)
+            .reason("Harvesting media")
+            .app_name("Harvest")
+            .create()
+            .ok();
+
         let emitter = app.clone();
-        // Throttle per-file progress so cards with thousands of clips don't
-        // flood the UI; the final totals always arrive via harvest:done.
         let last = std::sync::Mutex::new(std::time::Instant::now());
-        let result = run_harvest(&cfg, move |event| match event {
+        let result = run_harvest(&cfg, &flag, move |event| match event {
             HarvestEvent::Planned { total_scanned, kept, to_copy, skipped, copy_bytes } => {
                 let _ = emitter.emit(
                     "harvest:planned",
@@ -240,6 +365,27 @@ fn start_harvest(app: AppHandle, req: CopyRequest) -> Result<(), String> {
 
         match result {
             Ok(outcome) => {
+                append_history(
+                    &app,
+                    HistoryEntry {
+                        when: now_secs(),
+                        source: source.clone(),
+                        dests: dests.clone(),
+                        copied: outcome.copied,
+                        skipped: outcome.skipped,
+                        bytes: outcome.copied_bytes,
+                        success: outcome.success(),
+                        cancelled: outcome.cancelled,
+                    },
+                );
+                let body = if outcome.cancelled {
+                    format!("Cancelled — {} files copied", outcome.copied)
+                } else if outcome.success() {
+                    format!("{} copied, {} already present", outcome.copied, outcome.skipped)
+                } else {
+                    format!("Finished with {} problem(s)", outcome.errors.len() + outcome.verify_failures.len())
+                };
+                let _ = app.notification().builder().title("Harvest").body(body).show();
                 let _ = app.emit(
                     "harvest:done",
                     DonePayload {
@@ -251,6 +397,7 @@ fn start_harvest(app: AppHandle, req: CopyRequest) -> Result<(), String> {
                         errors: outcome.errors,
                         manifest_path: outcome.manifest_path.map(|p| p.display().to_string()),
                         journal_path: outcome.journal_path.display().to_string(),
+                        cancelled: outcome.cancelled,
                     },
                 );
             }
@@ -309,10 +456,16 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
+        .manage(Cancel::default())
         .invoke_handler(tauri::generate_handler![
             list_drives,
             inspect_path,
+            plan_harvest,
             start_harvest,
+            cancel_harvest,
+            list_history,
+            clear_history,
             list_presets,
             save_preset,
             delete_preset

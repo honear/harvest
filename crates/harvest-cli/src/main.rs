@@ -150,7 +150,8 @@ fn run_copy(cfg: HarvestConfig) -> Result<()> {
     let planned_files = AtomicU64::new(0);
     let start = Instant::now();
 
-    let outcome = run_harvest(&cfg, |event| match event {
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    let outcome = run_harvest(&cfg, &cancel, |event| match event {
         HarvestEvent::Planned { total_scanned, kept, to_copy, skipped, copy_bytes } => {
             if kept != total_scanned {
                 println!("Filter kept {kept} of {total_scanned} scanned files.");

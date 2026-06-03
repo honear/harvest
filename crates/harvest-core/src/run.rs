@@ -75,11 +75,13 @@ pub struct HarvestOutcome {
     pub errors: Vec<String>,
     pub manifest_path: Option<PathBuf>,
     pub journal_path: PathBuf,
+    /// True if the run was cancelled before all files were processed.
+    pub cancelled: bool,
 }
 
 impl HarvestOutcome {
     pub fn success(&self) -> bool {
-        self.errors.is_empty() && self.verify_failures.is_empty()
+        self.errors.is_empty() && self.verify_failures.is_empty() && !self.cancelled
     }
 }
 
@@ -122,32 +124,13 @@ fn default_journal_path(dests: &[PathBuf]) -> PathBuf {
     root.join(JOURNAL_NAME)
 }
 
-fn default_manifest_path(dests: &[PathBuf], ext: &str) -> PathBuf {
-    let root = dests.first().cloned().unwrap_or_else(|| PathBuf::from("."));
-    root.join(format!("harvest-manifest.{ext}"))
-}
-
-/// Run a complete harvest, reporting progress via `on_event`.
-///
-/// Returns an [`HarvestOutcome`]. Per-file I/O errors and verification failures
-/// are collected into the outcome (not returned as `Err`); only setup failures
-/// (missing source, unreadable scan, journal creation) return `Err`.
-pub fn run_harvest(cfg: &HarvestConfig, on_event: impl Fn(HarvestEvent) + Sync) -> Result<HarvestOutcome> {
-    if !cfg.source.exists() {
-        bail!("source does not exist: {}", cfg.source.display());
-    }
-    if cfg.dests.is_empty() {
-        bail!("at least one destination is required");
-    }
-
+/// Scan the source, apply filters, and render templated destination paths.
+/// Shared by [`run_harvest`] and [`plan`].
+fn scan_filter_template(cfg: &HarvestConfig) -> Result<Vec<SourceFile>> {
     let mut all_files = scan(&cfg.source).context("scanning source")?;
-    let total_scanned = all_files.len();
     if !cfg.filter.is_empty() {
         all_files.retain(|f| cfg.filter.accepts(f));
     }
-    let kept = all_files.len();
-
-    // Render templated destination paths if requested.
     if let Some(tmpl) = &cfg.dest_template {
         let (jy, jm, jd) = date_parts(OffsetDateTime::now_utc().unix_timestamp_nanos());
         for f in &mut all_files {
@@ -168,6 +151,86 @@ pub fn run_harvest(cfg: &HarvestConfig, on_event: impl Fn(HarvestEvent) + Sync) 
             f.dest_rel = Some(dr);
         }
     }
+    Ok(all_files)
+}
+
+/// A read-only pre-flight summary: what a harvest *would* do, without copying.
+#[derive(Debug, Clone, Default)]
+pub struct HarvestPlan {
+    pub total: usize,
+    /// Files not present at any destination.
+    pub new: usize,
+    /// Files already present at every destination (matching size + mtime).
+    pub present: usize,
+    /// Files present at a destination but with different size/mtime (would overwrite).
+    pub conflict: usize,
+    /// Bytes that would actually be copied (new + conflict).
+    pub copy_bytes: u64,
+}
+
+/// Compare the (filtered, templated) source against the destinations without
+/// copying anything — powers the pre-flight confirmation.
+pub fn plan(cfg: &HarvestConfig) -> Result<HarvestPlan> {
+    if !cfg.source.exists() {
+        bail!("source does not exist: {}", cfg.source.display());
+    }
+    let files = scan_filter_template(cfg)?;
+    let mut p = HarvestPlan { total: files.len(), ..Default::default() };
+    for f in &files {
+        let target_rel = f.dest_rel.as_deref().unwrap_or(&f.rel);
+        let mut all_match = true;
+        let mut any_conflict = false;
+        for root in &cfg.dests {
+            match std::fs::metadata(root.join(target_rel)) {
+                Ok(m) if m.is_file() => {
+                    let same = m.len() == f.size
+                        && (crate::scan::mtime_ns(&m) - f.mtime_ns).abs() <= 2_000_000_000;
+                    if !same {
+                        any_conflict = true;
+                        all_match = false;
+                    }
+                }
+                _ => all_match = false,
+            }
+        }
+        if all_match {
+            p.present += 1;
+        } else if any_conflict {
+            p.conflict += 1;
+            p.copy_bytes += f.size;
+        } else {
+            p.new += 1;
+            p.copy_bytes += f.size;
+        }
+    }
+    Ok(p)
+}
+
+fn default_manifest_path(dests: &[PathBuf], ext: &str) -> PathBuf {
+    let root = dests.first().cloned().unwrap_or_else(|| PathBuf::from("."));
+    root.join(format!("harvest-manifest.{ext}"))
+}
+
+/// Run a complete harvest, reporting progress via `on_event`.
+///
+/// Returns an [`HarvestOutcome`]. Per-file I/O errors and verification failures
+/// are collected into the outcome (not returned as `Err`); only setup failures
+/// (missing source, unreadable scan, journal creation) return `Err`.
+pub fn run_harvest(
+    cfg: &HarvestConfig,
+    cancel: &std::sync::atomic::AtomicBool,
+    on_event: impl Fn(HarvestEvent) + Sync,
+) -> Result<HarvestOutcome> {
+    if !cfg.source.exists() {
+        bail!("source does not exist: {}", cfg.source.display());
+    }
+    if cfg.dests.is_empty() {
+        bail!("at least one destination is required");
+    }
+
+    let all_files = scan_filter_template(cfg)?;
+    let total_scanned = all_files.len();
+    let kept = all_files.len();
 
     let dest_strings: Vec<String> = cfg.dests.iter().map(|d| d.display().to_string()).collect();
     let journal_file = cfg
@@ -244,7 +307,7 @@ pub fn run_harvest(cfg: &HarvestConfig, on_event: impl Fn(HarvestEvent) + Sync) 
     let done_files = AtomicU64::new(0);
     let failures: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
-    let results = harvest_files(&to_copy, &cfg.dests, &opts, |report| {
+    let results = harvest_files(&to_copy, &cfg.dests, &opts, cancel, |report| {
         let db = done_bytes.fetch_add(report.bytes, Ordering::Relaxed) + report.bytes;
         let df = done_files.fetch_add(1, Ordering::Relaxed) + 1;
         if report.all_ok() {
@@ -286,6 +349,7 @@ pub fn run_harvest(cfg: &HarvestConfig, on_event: impl Fn(HarvestEvent) + Sync) 
         errors,
         manifest_path: None,
         journal_path: journal_file,
+        cancelled: cancel.load(Ordering::Acquire),
     };
 
     // Write the manifest only when everything succeeded.
@@ -353,6 +417,10 @@ mod tests {
         }
     }
 
+    fn no_cancel() -> std::sync::atomic::AtomicBool {
+        std::sync::atomic::AtomicBool::new(false)
+    }
+
     #[test]
     fn rerun_skips_files_already_present() {
         let root = temp_dir();
@@ -363,13 +431,19 @@ mod tests {
         let dest = root.join("dest");
 
         let c = cfg(src, dest);
-        let first = run_harvest(&c, |_| {}).unwrap();
+        let first = run_harvest(&c, &no_cancel(), |_| {}).unwrap();
         assert_eq!(first.copied, 2, "first run copies both files");
         assert_eq!(first.skipped, 0);
         assert!(first.success());
 
+        // A plan now sees both as present.
+        let pl = plan(&c).unwrap();
+        assert_eq!(pl.present, 2);
+        assert_eq!(pl.new, 0);
+        assert_eq!(pl.copy_bytes, 0);
+
         // Second run: mtime was preserved, so both files are recognized.
-        let second = run_harvest(&c, |_| {}).unwrap();
+        let second = run_harvest(&c, &no_cancel(), |_| {}).unwrap();
         assert_eq!(second.copied, 0, "nothing should be re-copied");
         assert_eq!(second.skipped, 2, "both files recognized as already present");
     }
@@ -383,10 +457,34 @@ mod tests {
         let dest = root.join("dest");
 
         let mut c = cfg(src, dest);
-        run_harvest(&c, |_| {}).unwrap();
+        run_harvest(&c, &no_cancel(), |_| {}).unwrap();
         c.skip_existing = false;
-        let again = run_harvest(&c, |_| {}).unwrap();
+        let again = run_harvest(&c, &no_cancel(), |_| {}).unwrap();
         assert_eq!(again.copied, 1, "with skip_existing off, the file is copied again");
         assert_eq!(again.skipped, 0);
+    }
+
+    #[test]
+    fn plan_classifies_new_present_conflict() {
+        let root = temp_dir();
+        let src = root.join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("a.bin"), vec![1u8; 100]).unwrap();
+        std::fs::write(src.join("b.bin"), vec![2u8; 200]).unwrap();
+        let dest = root.join("dest");
+        let c = cfg(src.clone(), dest.clone());
+
+        // Nothing copied yet → all new.
+        let p0 = plan(&c).unwrap();
+        assert_eq!(p0.new, 2);
+        assert_eq!(p0.present, 0);
+
+        run_harvest(&c, &no_cancel(), |_| {}).unwrap();
+        // Now make b differ at the destination → conflict; a stays present.
+        std::fs::write(dest.join("b.bin"), vec![9u8; 999]).unwrap();
+        let p1 = plan(&c).unwrap();
+        assert_eq!(p1.present, 1);
+        assert_eq!(p1.conflict, 1);
+        assert_eq!(p1.new, 0);
     }
 }

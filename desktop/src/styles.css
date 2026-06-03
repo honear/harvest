@@ -566,6 +566,106 @@ button:disabled {
   padding: 12px;
 }
 
+/* exclusions list */
+.exclude-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.exclude-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--canvas-soft);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  padding: 6px 10px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--body);
+}
+.exclude-list li span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.exclude-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* pre-flight dialog */
+.plan-dialog {
+  width: 420px;
+  text-align: left;
+}
+.plan-dialog h2 {
+  text-align: center;
+}
+.plan-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 16px 0;
+  font-size: 14px;
+}
+.plan-row {
+  display: flex;
+  justify-content: space-between;
+  color: var(--ink);
+}
+.plan-row .v {
+  font-family: var(--mono);
+}
+.plan-warn {
+  background: rgba(255, 123, 114, 0.12);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  font-size: 12.5px;
+  margin-bottom: 14px;
+}
+.plan-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* history */
+.history-item {
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+.history-when {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--mute);
+}
+.history-route {
+  font-size: 13px;
+  margin: 4px 0;
+  color: var(--ink);
+}
+.history-stats {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--body);
+}
+.history-ok {
+  color: var(--primary);
+}
+.history-bad {
+  color: var(--danger);
+}
+
 .muted {
   color: var(--mute);
 }
