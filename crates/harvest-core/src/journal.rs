@@ -43,10 +43,15 @@ impl JournalHeader {
 /// One completed file.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct JournalRecord {
+    /// Source-relative path — the stable identity used for resume matching.
     pub rel: String,
     pub size: u64,
     pub mtime_ns: i128,
     pub hash: String,
+    /// Destination-relative path the file was written to (after templating).
+    /// Defaults to `rel` for plain mirror copies and older journals.
+    #[serde(default)]
+    pub dest: String,
 }
 
 /// A parsed journal.
@@ -154,8 +159,8 @@ mod tests {
     fn write_then_load_roundtrips() {
         let path = temp_path();
         let j = Journal::create(&path, &header()).unwrap();
-        j.record(&JournalRecord { rel: "a/b.mov".into(), size: 10, mtime_ns: 123, hash: "ff".into() }).unwrap();
-        j.record(&JournalRecord { rel: "c.txt".into(), size: 3, mtime_ns: 456, hash: "ee".into() }).unwrap();
+        j.record(&JournalRecord { rel: "a/b.mov".into(), size: 10, mtime_ns: 123, hash: "ff".into(), dest: "a/b.mov".into() }).unwrap();
+        j.record(&JournalRecord { rel: "c.txt".into(), size: 3, mtime_ns: 456, hash: "ee".into(), dest: "c.txt".into() }).unwrap();
         drop(j);
 
         let loaded = load(&path).expect("should load");

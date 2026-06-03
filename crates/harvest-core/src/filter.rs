@@ -97,6 +97,7 @@ mod tests {
             rel: PathBuf::from(name),
             size,
             mtime_ns,
+            dest_rel: None,
         }
     }
 

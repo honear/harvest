@@ -32,6 +32,9 @@ pub struct FileReport {
     pub rel: PathBuf,
     /// Source modification time (ns since Unix epoch); set by `harvest_files`.
     pub mtime_ns: i128,
+    /// Path relative to each destination root where the file was written
+    /// (after templating). Equals `rel` for a plain mirror copy.
+    pub dest_rel: PathBuf,
     pub bytes: u64,
     pub source_hash: String,
     pub dests: Vec<DestReport>,
@@ -124,6 +127,11 @@ pub fn copy_file_verified(
             .file_name()
             .map(PathBuf::from)
             .unwrap_or_else(|| source.to_path_buf()),
+        dest_rel: dests
+            .first()
+            .and_then(|d| d.file_name())
+            .map(PathBuf::from)
+            .unwrap_or_default(),
         mtime_ns: 0,
         bytes: total,
         source_hash,

@@ -19,6 +19,9 @@ pub struct SourceFile {
     /// Modification time as nanoseconds relative to the Unix epoch (signed, so
     /// pre-1970 timestamps round-trip). 0 if unavailable.
     pub mtime_ns: i128,
+    /// Where to write this file relative to each destination root. `None`
+    /// mirrors the source tree (`rel`); `Some` is set by template rendering.
+    pub dest_rel: Option<PathBuf>,
 }
 
 /// Modification time of a file's metadata as nanoseconds since the Unix epoch.
@@ -47,6 +50,7 @@ pub fn scan(source: &Path) -> Result<Vec<SourceFile>> {
             rel: PathBuf::from(name),
             size: meta.len(),
             mtime_ns: mtime_ns(&meta),
+            dest_rel: None,
         });
         return Ok(files);
     }
@@ -65,6 +69,7 @@ pub fn scan(source: &Path) -> Result<Vec<SourceFile>> {
                 rel,
                 size: meta.len(),
                 mtime_ns: mtime_ns(&meta),
+                dest_rel: None,
             });
         }
     }

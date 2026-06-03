@@ -10,6 +10,7 @@ pub mod hash;
 pub mod journal;
 pub mod manifest;
 pub mod scan;
+pub mod template;
 
 use std::path::{Path, PathBuf};
 
@@ -22,6 +23,7 @@ pub use hash::{hash_file, HashAlgo, Hasher};
 pub use journal::{Journal, JournalHeader, JournalRecord, JOURNAL_VERSION};
 pub use manifest::{to_mhl, to_sidecar, ManifestEntry};
 pub use scan::{mtime_ns, scan, SourceFile};
+pub use template::{render as render_template, RenderCtx};
 
 /// 8 MiB streaming buffer — favors throughput on large media files.
 pub const DEFAULT_BUF_SIZE: usize = 8 * 1024 * 1024;
@@ -56,13 +58,16 @@ pub fn harvest_files(
     files
         .par_iter()
         .map(|f| {
-            let dests: Vec<PathBuf> = dest_roots.iter().map(|root| root.join(&f.rel)).collect();
+            // Write to the templated path if set, else mirror the source tree.
+            let target_rel = f.dest_rel.as_ref().unwrap_or(&f.rel);
+            let dests: Vec<PathBuf> = dest_roots.iter().map(|root| root.join(target_rel)).collect();
             let result =
                 copy_file_verified(&f.abs, &dests, opts.algo, opts.verify, opts.buf_size);
             match result {
                 Ok(mut report) => {
                     // Carry source identity the copy layer didn't know about.
                     report.rel = f.rel.clone();
+                    report.dest_rel = target_rel.clone();
                     report.mtime_ns = f.mtime_ns;
                     on_done(&report);
                     Ok(report)

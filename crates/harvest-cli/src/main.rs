@@ -19,8 +19,9 @@ use time::format_description::well_known::Rfc3339;
 use time::{Date, Month, OffsetDateTime, Time};
 
 use harvest_core::{
-    harvest_files, journal, scan, to_mhl, to_sidecar, Filter, HarvestOptions, HashAlgo, Journal,
-    JournalHeader, JournalRecord, ManifestEntry, SourceFile, JOURNAL_VERSION,
+    harvest_files, journal, render_template, scan, to_mhl, to_sidecar, Filter, HarvestOptions,
+    HashAlgo, Journal, JournalHeader, JournalRecord, ManifestEntry, RenderCtx, SourceFile,
+    JOURNAL_VERSION,
 };
 
 const TOOL: &str = concat!("Harvest ", env!("CARGO_PKG_VERSION"));
@@ -66,6 +67,14 @@ enum Command {
         /// Only files modified before this date (YYYY-MM-DD, UTC).
         #[arg(long, value_name = "DATE")]
         older_than: Option<String>,
+        /// Destination path template, e.g. "{project}/{YYYY}-{MM}-{DD}/{filename}".
+        /// Tokens: {filename} {name} {ext} {reldir} {relpath} {project}
+        /// {YYYY} {YY} {MM} {DD} (job date) {fYYYY} {fMM} {fDD} (file date).
+        #[arg(long, value_name = "TEMPLATE")]
+        dest_template: Option<String>,
+        /// Project name available to templates as {project}.
+        #[arg(long, value_name = "NAME", default_value = "")]
+        project: String,
         /// Resume an interrupted run, skipping files already verified.
         #[arg(long)]
         resume: bool,
@@ -95,6 +104,8 @@ fn main() -> Result<()> {
             max_size,
             newer_than,
             older_than,
+            dest_template,
+            project,
             resume,
             journal,
             manifest,
@@ -114,6 +125,8 @@ fn main() -> Result<()> {
                 hash,
                 verify: !no_verify,
                 filter,
+                dest_template,
+                project,
                 resume,
                 journal_path: journal,
                 manifest_path: manifest,
@@ -129,6 +142,8 @@ struct RunArgs {
     hash: String,
     verify: bool,
     filter: Filter,
+    dest_template: Option<String>,
+    project: String,
     resume: bool,
     journal_path: Option<PathBuf>,
     manifest_path: Option<PathBuf>,
@@ -167,6 +182,8 @@ fn run_copy(args: RunArgs) -> Result<()> {
         hash,
         verify,
         filter,
+        dest_template,
+        project,
         resume,
         journal_path,
         manifest_path,
@@ -190,6 +207,29 @@ fn run_copy(args: RunArgs) -> Result<()> {
     if all_files.is_empty() {
         println!("No files to copy after scanning/filtering. Nothing to do.");
         return Ok(());
+    }
+
+    // Render destination paths from the template, if one was given.
+    if let Some(tmpl) = &dest_template {
+        let (jy, jm, jd) = date_parts(OffsetDateTime::now_utc().unix_timestamp_nanos());
+        for f in &mut all_files {
+            let (fy, fm, fd) = date_parts(f.mtime_ns);
+            let dr = {
+                let ctx = RenderCtx {
+                    rel: &f.rel,
+                    project: &project,
+                    job_year: jy,
+                    job_month: jm,
+                    job_day: jd,
+                    file_year: fy,
+                    file_month: fm,
+                    file_day: fd,
+                };
+                render_template(tmpl, &ctx)
+            };
+            f.dest_rel = Some(dr);
+        }
+        println!("Applying destination template: {tmpl}");
     }
 
     let dest_strings: Vec<String> = dests.iter().map(|d| d.display().to_string()).collect();
@@ -217,7 +257,9 @@ fn run_copy(args: RunArgs) -> Result<()> {
         let rel_fwd = forward_slash(&f.rel);
         match done.get(&rel_fwd) {
             Some(rec) if rec.size == f.size && rec.mtime_ns == f.mtime_ns => {
-                skipped.push(ManifestEntry { rel: f.rel.clone(), size: rec.size, hash: rec.hash.clone() });
+                // Use the destination path the file actually landed at last time.
+                let dest = if rec.dest.is_empty() { rec.rel.clone() } else { rec.dest.clone() };
+                skipped.push(ManifestEntry { rel: PathBuf::from(dest), size: rec.size, hash: rec.hash.clone() });
             }
             _ => to_copy.push(f.clone()),
         }
@@ -281,6 +323,7 @@ fn run_copy(args: RunArgs) -> Result<()> {
                     size: report.bytes,
                     mtime_ns: report.mtime_ns,
                     hash: report.source_hash.clone(),
+                    dest: forward_slash(&report.dest_rel),
                 });
             } else {
                 for d in report.dests.iter().filter(|d| !d.ok) {
@@ -336,7 +379,7 @@ fn run_copy(args: RunArgs) -> Result<()> {
         for r in &results {
             if let Ok(report) = r {
                 entries.push(ManifestEntry {
-                    rel: report.rel.clone(),
+                    rel: report.dest_rel.clone(),
                     size: report.bytes,
                     hash: report.source_hash.clone(),
                 });
@@ -414,6 +457,14 @@ fn parse_date_ns(s: &str) -> Result<i128> {
     let date = Date::from_calendar_date(year, Month::try_from(month)?, day)
         .with_context(|| format!("invalid date '{s}'"))?;
     Ok(date.with_time(Time::MIDNIGHT).assume_utc().unix_timestamp_nanos())
+}
+
+/// Decompose a Unix-nanosecond timestamp into (year, month, day) in UTC.
+fn date_parts(ns: i128) -> (i32, u8, u8) {
+    match OffsetDateTime::from_unix_timestamp_nanos(ns) {
+        Ok(dt) => (dt.year(), u8::from(dt.month()), dt.day()),
+        Err(_) => (1970, 1, 1),
+    }
 }
 
 /// Current time as an RFC-3339 string (UTC), for manifest timestamps.
