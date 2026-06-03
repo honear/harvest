@@ -1,13 +1,14 @@
 //! `harvest` — command-line front end for the Harvest ingest engine.
 //!
+//! The actual work lives in `harvest_core::run_harvest`; this binary only parses
+//! arguments and renders progress.
+//!
 //! Examples:
 //!   harvest copy /path/to/SDCARD ./backupA ./backupB --hash xxh64
 //!   harvest copy ./project ./archive --no-verify
-//!   harvest copy /path/to/SDCARD ./backupA --resume   # continue an interrupted run
+//!   harvest copy /path/to/SDCARD ./backupA --resume
 
-use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
@@ -15,17 +16,8 @@ use std::time::Instant;
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
-use time::format_description::well_known::Rfc3339;
-use time::{Date, Month, OffsetDateTime, Time};
 
-use harvest_core::{
-    harvest_files, journal, render_template, scan, to_mhl, to_sidecar, Filter, HarvestOptions,
-    HashAlgo, Journal, JournalHeader, JournalRecord, ManifestEntry, RenderCtx, SourceFile,
-    JOURNAL_VERSION,
-};
-
-const TOOL: &str = concat!("Harvest ", env!("CARGO_PKG_VERSION"));
-const JOURNAL_NAME: &str = ".harvest-journal.jsonl";
+use harvest_core::{run_harvest, Filter, HarvestConfig, HarvestEvent, HashAlgo};
 
 #[derive(Parser)]
 #[command(name = "harvest", version, about = "Verified media ingest")]
@@ -111,367 +103,121 @@ fn main() -> Result<()> {
             manifest,
             no_manifest,
         } => {
-            let filter = build_filter(
-                include_ext,
-                exclude_ext,
-                min_size,
-                max_size,
-                newer_than,
-                older_than,
+            let filter = Filter::build(
+                include_ext.as_deref(),
+                exclude_ext.as_deref(),
+                min_size.as_deref(),
+                max_size.as_deref(),
+                newer_than.as_deref(),
+                older_than.as_deref(),
             )?;
-            run_copy(RunArgs {
+            let algo = HashAlgo::parse(&hash)
+                .with_context(|| format!("unknown hash algorithm '{hash}' (expected xxh64, xxh3, or md5)"))?;
+            let cfg = HarvestConfig {
                 source,
                 dests,
-                hash,
+                algo,
                 verify: !no_verify,
+                resume,
                 filter,
                 dest_template,
                 project,
-                resume,
+                write_manifest: !no_manifest,
                 journal_path: journal,
                 manifest_path: manifest,
-                no_manifest,
-            })
-        }
-    }
-}
-
-struct RunArgs {
-    source: PathBuf,
-    dests: Vec<PathBuf>,
-    hash: String,
-    verify: bool,
-    filter: Filter,
-    dest_template: Option<String>,
-    project: String,
-    resume: bool,
-    journal_path: Option<PathBuf>,
-    manifest_path: Option<PathBuf>,
-    no_manifest: bool,
-}
-
-/// Translate the CLI's string filter flags into a core [`Filter`].
-fn build_filter(
-    include_ext: Option<String>,
-    exclude_ext: Option<String>,
-    min_size: Option<String>,
-    max_size: Option<String>,
-    newer_than: Option<String>,
-    older_than: Option<String>,
-) -> Result<Filter> {
-    let parse_exts = |s: String| -> HashSet<String> {
-        s.split(',')
-            .map(|e| e.trim().trim_start_matches('.').to_lowercase())
-            .filter(|e| !e.is_empty())
-            .collect()
-    };
-    Ok(Filter {
-        include_ext: include_ext.map(parse_exts).filter(|s| !s.is_empty()),
-        exclude_ext: exclude_ext.map(parse_exts).unwrap_or_default(),
-        min_size: min_size.map(|s| parse_size(&s)).transpose()?,
-        max_size: max_size.map(|s| parse_size(&s)).transpose()?,
-        newer_than_ns: newer_than.map(|s| parse_date_ns(&s)).transpose()?,
-        older_than_ns: older_than.map(|s| parse_date_ns(&s)).transpose()?,
-    })
-}
-
-fn run_copy(args: RunArgs) -> Result<()> {
-    let RunArgs {
-        source,
-        dests,
-        hash,
-        verify,
-        filter,
-        dest_template,
-        project,
-        resume,
-        journal_path,
-        manifest_path,
-        no_manifest,
-    } = args;
-
-    let algo = HashAlgo::parse(&hash)
-        .with_context(|| format!("unknown hash algorithm '{hash}' (expected xxh64, xxh3, or md5)"))?;
-    if !source.exists() {
-        bail!("source does not exist: {}", source.display());
-    }
-
-    println!("Scanning {} ...", source.display());
-    let mut all_files = scan(&source).context("scanning source")?;
-    let scanned = all_files.len();
-    if !filter.is_empty() {
-        all_files.retain(|f| filter.accepts(f));
-        let removed = scanned - all_files.len();
-        println!("Filter kept {} of {scanned} files ({removed} excluded).", all_files.len());
-    }
-    if all_files.is_empty() {
-        println!("No files to copy after scanning/filtering. Nothing to do.");
-        return Ok(());
-    }
-
-    // Render destination paths from the template, if one was given.
-    if let Some(tmpl) = &dest_template {
-        let (jy, jm, jd) = date_parts(OffsetDateTime::now_utc().unix_timestamp_nanos());
-        for f in &mut all_files {
-            let (fy, fm, fd) = date_parts(f.mtime_ns);
-            let dr = {
-                let ctx = RenderCtx {
-                    rel: &f.rel,
-                    project: &project,
-                    job_year: jy,
-                    job_month: jm,
-                    job_day: jd,
-                    file_year: fy,
-                    file_month: fm,
-                    file_day: fd,
-                };
-                render_template(tmpl, &ctx)
             };
-            f.dest_rel = Some(dr);
-        }
-        println!("Applying destination template: {tmpl}");
-    }
-
-    let dest_strings: Vec<String> = dests.iter().map(|d| d.display().to_string()).collect();
-    let journal_file = journal_path.unwrap_or_else(|| default_journal_path(&dests));
-
-    // Load a prior journal when resuming and it matches this job's settings.
-    let mut done: HashMap<String, JournalRecord> = HashMap::new();
-    let mut appending = false;
-    if resume {
-        match journal::load(&journal_file) {
-            Some(loaded) if loaded.header.compatible_with(algo.name(), verify, &dest_strings) => {
-                done = loaded.done;
-                appending = true;
-                println!("Resuming from {} ({} files recorded).", journal_file.display(), done.len());
-            }
-            Some(_) => println!("Existing journal is incompatible with these settings — starting fresh."),
-            None => println!("No prior journal found — starting fresh."),
+            run_copy(cfg)
         }
     }
+}
 
-    // Partition into work to do vs. files already verified (and unchanged).
-    let mut to_copy: Vec<SourceFile> = Vec::new();
-    let mut skipped: Vec<ManifestEntry> = Vec::new();
-    for f in &all_files {
-        let rel_fwd = forward_slash(&f.rel);
-        match done.get(&rel_fwd) {
-            Some(rec) if rec.size == f.size && rec.mtime_ns == f.mtime_ns => {
-                // Use the destination path the file actually landed at last time.
-                let dest = if rec.dest.is_empty() { rec.rel.clone() } else { rec.dest.clone() };
-                skipped.push(ManifestEntry { rel: PathBuf::from(dest), size: rec.size, hash: rec.hash.clone() });
-            }
-            _ => to_copy.push(f.clone()),
-        }
-    }
-
-    let copy_bytes: u64 = to_copy.iter().map(|f| f.size).sum();
-    let copy_count = to_copy.len();
+fn run_copy(cfg: HarvestConfig) -> Result<()> {
     println!(
-        "{} file(s) to copy ({}), {} already verified. Hash: {}. Verify: {}. Dests: {}.",
-        copy_count,
-        human_bytes(copy_bytes),
-        skipped.len(),
-        algo.name(),
-        if verify { "read-back" } else { "off" },
-        dests.len(),
+        "Harvesting {} -> {} destination(s). Hash: {}. Verify: {}.",
+        cfg.source.display(),
+        cfg.dests.len(),
+        cfg.algo.name(),
+        if cfg.verify { "read-back" } else { "off" }
     );
 
-    let opts = HarvestOptions { algo, verify, buf_size: harvest_core::DEFAULT_BUF_SIZE };
-
-    // Open the journal for writing (append to resume, else create fresh w/ header).
-    let journal = if appending {
-        Journal::append(&journal_file)?
-    } else {
-        let header = JournalHeader {
-            v: JOURNAL_VERSION,
-            algo: algo.name().to_string(),
-            verify,
-            dests: dest_strings.clone(),
-        };
-        Journal::create(&journal_file, &header)?
-    };
-
-    let start_iso = now_iso();
+    let bar: Mutex<Option<ProgressBar>> = Mutex::new(None);
+    let planned_files = AtomicU64::new(0);
     let start = Instant::now();
-    let mut results = Vec::new();
 
-    if copy_count > 0 {
-        let bar = ProgressBar::new(copy_bytes);
-        bar.set_style(
-            ProgressStyle::with_template(
-                "{bar:40.cyan/blue} {bytes}/{total_bytes} ({bytes_per_sec}, ETA {eta}) {msg}",
-            )
-            .unwrap()
-            .progress_chars("##-"),
+    let outcome = run_harvest(&cfg, |event| match event {
+        HarvestEvent::Planned { total_scanned, kept, to_copy, skipped, copy_bytes } => {
+            if kept != total_scanned {
+                println!("Filter kept {kept} of {total_scanned} scanned files.");
+            }
+            println!(
+                "{to_copy} file(s) to copy ({}), {skipped} already verified.",
+                human_bytes(copy_bytes)
+            );
+            planned_files.store(to_copy as u64, Ordering::Relaxed);
+            if to_copy > 0 {
+                let b = ProgressBar::new(copy_bytes);
+                b.set_style(
+                    ProgressStyle::with_template(
+                        "{bar:40.cyan/blue} {bytes}/{total_bytes} ({bytes_per_sec}, ETA {eta}) {msg}",
+                    )
+                    .unwrap()
+                    .progress_chars("##-"),
+                );
+                *bar.lock().unwrap() = Some(b);
+            }
+        }
+        HarvestEvent::FileDone { done_files, done_bytes, .. } => {
+            if let Some(b) = bar.lock().unwrap().as_ref() {
+                b.set_position(done_bytes);
+                b.set_message(format!("{done_files}/{}", planned_files.load(Ordering::Relaxed)));
+            }
+        }
+    })?;
+
+    if let Some(b) = bar.lock().unwrap().take() {
+        b.finish_and_clear();
+    }
+
+    let secs = start.elapsed().as_secs_f64();
+    if outcome.copied_bytes > 0 {
+        let rate = if secs > 0.0 { outcome.copied_bytes as f64 / secs } else { 0.0 };
+        println!(
+            "\nDone in {:.1}s — {} copied at {}/s",
+            secs,
+            human_bytes(outcome.copied_bytes),
+            human_bytes(rate as u64)
         );
+    }
 
-        let done_bytes = AtomicU64::new(0);
-        let done_files = AtomicU64::new(0);
-        let failures: Mutex<Vec<String>> = Mutex::new(Vec::new());
-
-        results = harvest_files(&to_copy, &dests, &opts, |report| {
-            done_bytes.fetch_add(report.bytes, Ordering::Relaxed);
-            let n = done_files.fetch_add(1, Ordering::Relaxed) + 1;
-            bar.set_position(done_bytes.load(Ordering::Relaxed));
-            bar.set_message(format!("{n}/{copy_count}"));
-
-            if report.all_ok() {
-                // Persist progress immediately so an interruption is resumable.
-                let _ = journal.record(&JournalRecord {
-                    rel: forward_slash(&report.rel),
-                    size: report.bytes,
-                    mtime_ns: report.mtime_ns,
-                    hash: report.source_hash.clone(),
-                    dest: forward_slash(&report.dest_rel),
-                });
-            } else {
-                for d in report.dests.iter().filter(|d| !d.ok) {
-                    failures.lock().unwrap().push(format!("VERIFY FAILED: {}", d.path.display()));
-                }
-            }
-        });
-        bar.finish_and_clear();
-
-        // Report I/O errors and verification failures; withhold the manifest if any.
-        let mut errors: Vec<String> = Vec::new();
-        for r in &results {
-            if let Err(e) = r {
-                errors.push(format!("{e:#}"));
-            }
+    if !outcome.success() {
+        for e in &outcome.errors {
+            eprintln!("ERROR: {e}");
         }
-        let verify_failures = failures.into_inner().unwrap();
-
-        let secs = start.elapsed().as_secs_f64();
-        let rate = if secs > 0.0 { copy_bytes as f64 / secs } else { 0.0 };
-        println!("\nDone in {:.1}s — {} copied at {}/s", secs, human_bytes(copy_bytes), human_bytes(rate as u64));
-
-        if !errors.is_empty() || !verify_failures.is_empty() {
-            for e in &errors {
-                eprintln!("ERROR: {e}");
-            }
-            for f in &verify_failures {
-                eprintln!("{f}");
-            }
-            eprintln!(
-                "\nProgress saved to {} — re-run with --resume to continue.",
-                journal_file.display()
-            );
-            bail!(
-                "{} error(s), {} verification failure(s) — manifest not written",
-                errors.len(),
-                verify_failures.len()
-            );
+        for f in &outcome.verify_failures {
+            eprintln!("VERIFY FAILED: {f}");
         }
+        eprintln!(
+            "\nProgress saved to {} — re-run with --resume to continue.",
+            outcome.journal_path.display()
+        );
+        bail!(
+            "{} error(s), {} verification failure(s) — manifest not written",
+            outcome.errors.len(),
+            outcome.verify_failures.len()
+        );
     }
 
     println!(
         "All {} file(s) {} OK ({} copied, {} already done).",
-        copy_count + skipped.len(),
-        if verify { "verified" } else { "written (not verified)" },
-        copy_count,
-        skipped.len(),
+        outcome.copied + outcome.skipped,
+        if cfg.verify { "verified" } else { "written (not verified)" },
+        outcome.copied,
+        outcome.skipped
     );
-
-    // Build the manifest from everything proven good: skipped + freshly copied.
-    if !no_manifest {
-        let mut entries = skipped;
-        for r in &results {
-            if let Ok(report) = r {
-                entries.push(ManifestEntry {
-                    rel: report.dest_rel.clone(),
-                    size: report.bytes,
-                    hash: report.source_hash.clone(),
-                });
-            }
-        }
-        let finish_iso = now_iso();
-        let (path, contents) = match to_mhl(&entries, algo, TOOL, &start_iso, &finish_iso) {
-            Some(mhl) => (manifest_path.unwrap_or_else(|| default_manifest_path(&dests, "mhl")), mhl),
-            None => (
-                manifest_path.unwrap_or_else(|| default_manifest_path(&dests, "txt")),
-                to_sidecar(&entries, algo),
-            ),
-        };
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).ok();
-        }
-        fs::write(&path, contents).with_context(|| format!("writing manifest {}", path.display()))?;
+    if let Some(path) = &outcome.manifest_path {
         println!("Manifest: {}", path.display());
     }
-
     Ok(())
-}
-
-/// Default journal location: inside the first destination root.
-fn default_journal_path(dests: &[PathBuf]) -> PathBuf {
-    let root = dests.first().cloned().unwrap_or_else(|| PathBuf::from("."));
-    root.join(JOURNAL_NAME)
-}
-
-/// Default manifest location: inside the first destination root.
-fn default_manifest_path(dests: &[PathBuf], ext: &str) -> PathBuf {
-    let root = dests.first().cloned().unwrap_or_else(|| PathBuf::from("."));
-    root.join(format!("harvest-manifest.{ext}"))
-}
-
-/// Render a relative path with forward slashes for portable, stable keys.
-fn forward_slash(rel: &Path) -> String {
-    rel.components()
-        .map(|c| c.as_os_str().to_string_lossy())
-        .collect::<Vec<_>>()
-        .join("/")
-}
-
-/// Parse a human size like "10MB", "500K", "1.5G", or a plain byte count.
-/// Units are binary (1 K = 1024).
-fn parse_size(s: &str) -> Result<u64> {
-    let s = s.trim();
-    let split = s
-        .find(|c: char| !(c.is_ascii_digit() || c == '.'))
-        .unwrap_or(s.len());
-    let (num, unit) = s.split_at(split);
-    let value: f64 = num
-        .parse()
-        .with_context(|| format!("invalid size '{s}'"))?;
-    let mult: f64 = match unit.trim().to_ascii_uppercase().as_str() {
-        "" | "B" => 1.0,
-        "K" | "KB" => 1024.0,
-        "M" | "MB" => 1024.0 * 1024.0,
-        "G" | "GB" => 1024.0 * 1024.0 * 1024.0,
-        "T" | "TB" => 1024.0 * 1024.0 * 1024.0 * 1024.0,
-        other => bail!("unknown size unit '{other}' in '{s}'"),
-    };
-    Ok((value * mult) as u64)
-}
-
-/// Parse a `YYYY-MM-DD` date as nanoseconds since the Unix epoch (UTC midnight).
-fn parse_date_ns(s: &str) -> Result<i128> {
-    let parts: Vec<&str> = s.trim().split('-').collect();
-    if parts.len() != 3 {
-        bail!("invalid date '{s}' (expected YYYY-MM-DD)");
-    }
-    let year: i32 = parts[0].parse().with_context(|| format!("invalid year in '{s}'"))?;
-    let month: u8 = parts[1].parse().with_context(|| format!("invalid month in '{s}'"))?;
-    let day: u8 = parts[2].parse().with_context(|| format!("invalid day in '{s}'"))?;
-    let date = Date::from_calendar_date(year, Month::try_from(month)?, day)
-        .with_context(|| format!("invalid date '{s}'"))?;
-    Ok(date.with_time(Time::MIDNIGHT).assume_utc().unix_timestamp_nanos())
-}
-
-/// Decompose a Unix-nanosecond timestamp into (year, month, day) in UTC.
-fn date_parts(ns: i128) -> (i32, u8, u8) {
-    match OffsetDateTime::from_unix_timestamp_nanos(ns) {
-        Ok(dt) => (dt.year(), u8::from(dt.month()), dt.day()),
-        Err(_) => (1970, 1, 1),
-    }
-}
-
-/// Current time as an RFC-3339 string (UTC), for manifest timestamps.
-fn now_iso() -> String {
-    OffsetDateTime::now_utc()
-        .format(&Rfc3339)
-        .unwrap_or_else(|_| "unknown".into())
 }
 
 fn human_bytes(n: u64) -> String {

@@ -6,6 +6,9 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+use anyhow::{bail, Context, Result};
+use time::{Date, Month, Time};
+
 use crate::scan::SourceFile;
 
 /// A set of include/exclude rules applied to each [`SourceFile`].
@@ -26,6 +29,33 @@ pub struct Filter {
 }
 
 impl Filter {
+    /// Build a filter from raw string inputs (as supplied by a CLI flag or GUI
+    /// field). Extension lists are comma-separated; sizes accept units like
+    /// `10MB`; dates are `YYYY-MM-DD` (UTC). Empty/`None` inputs are inactive.
+    pub fn build(
+        include_ext: Option<&str>,
+        exclude_ext: Option<&str>,
+        min_size: Option<&str>,
+        max_size: Option<&str>,
+        newer_than: Option<&str>,
+        older_than: Option<&str>,
+    ) -> Result<Self> {
+        let parse_exts = |s: &str| -> HashSet<String> {
+            s.split(',')
+                .map(|e| e.trim().trim_start_matches('.').to_lowercase())
+                .filter(|e| !e.is_empty())
+                .collect()
+        };
+        Ok(Filter {
+            include_ext: include_ext.map(parse_exts).filter(|s| !s.is_empty()),
+            exclude_ext: exclude_ext.map(parse_exts).unwrap_or_default(),
+            min_size: opt_str(min_size).map(parse_size).transpose()?,
+            max_size: opt_str(max_size).map(parse_size).transpose()?,
+            newer_than_ns: opt_str(newer_than).map(parse_date_ns).transpose()?,
+            older_than_ns: opt_str(older_than).map(parse_date_ns).transpose()?,
+        })
+    }
+
     /// True when no criteria are set (keeps everything).
     pub fn is_empty(&self) -> bool {
         self.include_ext.is_none()
@@ -84,6 +114,43 @@ impl Filter {
 /// Lower-cased extension (without the dot), or `None` if the file has none.
 fn ext_of(rel: &Path) -> Option<String> {
     rel.extension().map(|e| e.to_string_lossy().to_lowercase())
+}
+
+/// Treat an empty/whitespace string the same as `None`.
+fn opt_str(s: Option<&str>) -> Option<&str> {
+    s.map(str::trim).filter(|s| !s.is_empty())
+}
+
+/// Parse a human size like "10MB", "500K", "1.5G", or a plain byte count
+/// (binary units: 1 K = 1024).
+pub fn parse_size(s: &str) -> Result<u64> {
+    let s = s.trim();
+    let split = s.find(|c: char| !(c.is_ascii_digit() || c == '.')).unwrap_or(s.len());
+    let (num, unit) = s.split_at(split);
+    let value: f64 = num.parse().with_context(|| format!("invalid size '{s}'"))?;
+    let mult: f64 = match unit.trim().to_ascii_uppercase().as_str() {
+        "" | "B" => 1.0,
+        "K" | "KB" => 1024.0,
+        "M" | "MB" => 1024.0 * 1024.0,
+        "G" | "GB" => 1024.0 * 1024.0 * 1024.0,
+        "T" | "TB" => 1024.0 * 1024.0 * 1024.0 * 1024.0,
+        other => bail!("unknown size unit '{other}' in '{s}'"),
+    };
+    Ok((value * mult) as u64)
+}
+
+/// Parse a `YYYY-MM-DD` date as nanoseconds since the Unix epoch (UTC midnight).
+pub fn parse_date_ns(s: &str) -> Result<i128> {
+    let parts: Vec<&str> = s.trim().split('-').collect();
+    if parts.len() != 3 {
+        bail!("invalid date '{s}' (expected YYYY-MM-DD)");
+    }
+    let year: i32 = parts[0].parse().with_context(|| format!("invalid year in '{s}'"))?;
+    let month: u8 = parts[1].parse().with_context(|| format!("invalid month in '{s}'"))?;
+    let day: u8 = parts[2].parse().with_context(|| format!("invalid day in '{s}'"))?;
+    let date = Date::from_calendar_date(year, Month::try_from(month)?, day)
+        .with_context(|| format!("invalid date '{s}'"))?;
+    Ok(date.with_time(Time::MIDNIGHT).assume_utc().unix_timestamp_nanos())
 }
 
 #[cfg(test)]

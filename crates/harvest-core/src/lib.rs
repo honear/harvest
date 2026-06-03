@@ -9,6 +9,7 @@ pub mod filter;
 pub mod hash;
 pub mod journal;
 pub mod manifest;
+pub mod run;
 pub mod scan;
 pub mod template;
 
@@ -18,10 +19,13 @@ use anyhow::Result;
 use rayon::prelude::*;
 
 pub use copy::{copy_file_verified, DestReport, FileReport};
-pub use filter::Filter;
+pub use filter::{parse_date_ns, parse_size, Filter};
 pub use hash::{hash_file, HashAlgo, Hasher};
 pub use journal::{Journal, JournalHeader, JournalRecord, JOURNAL_VERSION};
 pub use manifest::{to_mhl, to_sidecar, ManifestEntry};
+pub use run::{
+    forward_slash, run_harvest, HarvestConfig, HarvestEvent, HarvestOutcome, JOURNAL_NAME,
+};
 pub use scan::{mtime_ns, scan, SourceFile};
 pub use template::{render as render_template, RenderCtx};
 
