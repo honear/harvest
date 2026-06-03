@@ -9,109 +9,119 @@
   </head>
 
   <body>
-    <main class="app">
+    <div class="app">
+      <!-- top bar -->
       <header class="topbar">
         <div class="brand">
           <span class="leaf">🌱</span>
-          <h1>Harvest</h1>
+          <span class="name">Harvest</span>
+          <span class="badge">0.1 · β</span>
         </div>
-        <div class="preset-bar">
+        <div class="topbar-center" id="topbar-title">Disks</div>
+        <div class="topbar-actions">
           <select id="preset-select" title="Presets">
             <option value="">Preset…</option>
           </select>
-          <button id="preset-save" class="ghost" title="Save current settings as a preset">Save</button>
+          <button id="preset-save" class="ghost" title="Save current settings">Save</button>
           <button id="preset-delete" class="ghost" title="Delete selected preset">Delete</button>
+          <button id="open-options" class="ghost">Options</button>
         </div>
       </header>
 
-      <section class="panel">
-        <h2>Source</h2>
-        <div class="path-row">
-          <input id="source" placeholder="Choose the folder or card to copy from…" readonly />
-          <button id="pick-source">Browse…</button>
-        </div>
-      </section>
+      <!-- three columns -->
+      <main class="columns">
+        <section class="col">
+          <h2>Sources</h2>
+          <ul id="source-list" class="droplist" data-role="source"></ul>
+          <button id="add-source" class="add-folder" title="Add a folder as source">+ Folder</button>
+        </section>
 
-      <section class="panel">
-        <div class="panel-head">
+        <section class="col col-disks">
+          <div id="disk-grid" class="disk-grid"></div>
+          <button id="refresh-disks" class="refresh ghost" title="Refresh drives">⟳</button>
+        </section>
+
+        <section class="col">
           <h2>Destinations</h2>
-          <button id="add-dest" class="ghost">+ Add destination</button>
-        </div>
-        <ul id="dest-list" class="dest-list"></ul>
-      </section>
+          <ul id="dest-list" class="droplist" data-role="dest"></ul>
+          <button id="add-dest" class="add-folder" title="Add a folder as destination">+ Folder</button>
+        </section>
+      </main>
 
-      <section class="panel">
-        <h2>Options</h2>
-        <div class="grid">
-          <label>Checksum
-            <select id="hash">
-              <option value="xxh64">xxHash64 (fast, MHL standard)</option>
-              <option value="xxh3">xxHash3 (fastest)</option>
-              <option value="md5">MD5 (compatibility)</option>
-            </select>
-          </label>
-          <label class="check">
-            <input type="checkbox" id="verify" checked />
-            Read-back verification
-          </label>
-          <label class="check">
-            <input type="checkbox" id="resume" />
-            Resume / skip already-copied
-          </label>
-          <label class="check">
-            <input type="checkbox" id="manifest" checked />
-            Write manifest
-          </label>
+      <!-- bottom action bar -->
+      <footer class="actionbar">
+        <div class="action-info">
+          <span id="status" class="status">Drag a drive into Sources and Destinations to begin.</span>
+          <div class="progress-track" id="progress-track" hidden>
+            <div id="progress-fill" class="progress-fill"></div>
+          </div>
+          <span id="progress-current" class="muted"></span>
+        </div>
+        <button id="start" class="primary">Harvest</button>
+      </footer>
+    </div>
+
+    <!-- options drawer -->
+    <div id="options-overlay" class="overlay" hidden>
+      <aside class="drawer" id="options-drawer">
+        <div class="drawer-head">
+          <h2>Options</h2>
+          <button id="close-options" class="ghost">Done</button>
         </div>
 
-        <details class="advanced">
-          <summary>Filters &amp; folder template</summary>
+        <div class="drawer-body">
           <div class="grid">
-            <label>Include extensions
-              <input id="include-ext" placeholder="mov,mxf,wav" />
+            <label>Checksum
+              <select id="hash">
+                <option value="xxh64">xxHash64 (fast, MHL standard)</option>
+                <option value="xxh3">xxHash3 (fastest)</option>
+                <option value="md5">MD5 (compatibility)</option>
+              </select>
             </label>
-            <label>Exclude extensions
-              <input id="exclude-ext" placeholder="tmp,thm" />
-            </label>
-            <label>Min size
-              <input id="min-size" placeholder="e.g. 10MB" />
-            </label>
-            <label>Max size
-              <input id="max-size" placeholder="e.g. 4GB" />
-            </label>
-            <label>Modified after
-              <input id="newer-than" placeholder="YYYY-MM-DD" />
-            </label>
-            <label>Modified before
-              <input id="older-than" placeholder="YYYY-MM-DD" />
-            </label>
-            <label>Project name
-              <input id="project" placeholder="e.g. BeachShoot" />
-            </label>
+            <div class="checks">
+              <label class="check"><input type="checkbox" id="verify" checked /> Read-back verification</label>
+              <label class="check"><input type="checkbox" id="resume" /> Resume / skip already-copied</label>
+              <label class="check"><input type="checkbox" id="manifest" checked /> Write manifest</label>
+            </div>
+          </div>
+
+          <h3>Filters</h3>
+          <div class="grid">
+            <label>Include extensions<input id="include-ext" placeholder="mov,mxf,wav" /></label>
+            <label>Exclude extensions<input id="exclude-ext" placeholder="tmp,thm" /></label>
+            <label>Min size<input id="min-size" placeholder="e.g. 10MB" /></label>
+            <label>Max size<input id="max-size" placeholder="e.g. 4GB" /></label>
+            <label>Modified after<input id="newer-than" placeholder="YYYY-MM-DD" /></label>
+            <label>Modified before<input id="older-than" placeholder="YYYY-MM-DD" /></label>
+          </div>
+
+          <h3>Folder template</h3>
+          <div class="grid">
+            <label>Project name<input id="project" placeholder="e.g. BeachShoot" /></label>
             <label class="wide">Destination template
               <input id="dest-template" placeholder="{project}/{YYYY}-{MM}-{DD}/{filename}" />
             </label>
           </div>
-        </details>
-      </section>
-
-      <section class="actionbar">
-        <button id="start" class="primary">Harvest</button>
-        <div id="status" class="status"></div>
-      </section>
-
-      <section class="panel progress-panel" id="progress-panel" hidden>
-        <div class="progress-track"><div id="progress-fill" class="progress-fill"></div></div>
-        <div class="progress-meta">
-          <span id="progress-text">Preparing…</span>
-          <span id="progress-current" class="muted"></span>
+          <p class="hint muted">
+            Tokens: {filename} {name} {ext} {reldir} {project} {YYYY} {MM} {DD} (job date)
+            {fYYYY} {fMM} {fDD} (file date). Leave blank to mirror the source tree.
+          </p>
         </div>
-      </section>
+      </aside>
+    </div>
 
-      <section class="panel result-panel" id="result-panel" hidden>
-        <div id="result-summary"></div>
-        <pre id="result-detail" class="result-detail"></pre>
-      </section>
-    </main>
+    <!-- result modal -->
+    <div id="result-overlay" class="overlay" hidden>
+      <aside class="drawer result" id="result-drawer">
+        <div class="drawer-head">
+          <h2 id="result-title">Result</h2>
+          <button id="close-result" class="ghost">Close</button>
+        </div>
+        <div class="drawer-body">
+          <div id="result-summary"></div>
+          <pre id="result-detail" class="result-detail"></pre>
+        </div>
+      </aside>
+    </div>
   </body>
 </html>

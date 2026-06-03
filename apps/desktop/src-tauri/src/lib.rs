@@ -12,6 +12,40 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use harvest_core::{run_harvest, Filter, HarvestConfig, HarvestEvent, HashAlgo};
 
+/// A mounted drive/volume shown in the center "Disks" panel.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct DriveInfo {
+    /// Volume label (may be empty).
+    name: String,
+    /// Mount point / drive root (e.g. `C:\` or `/Volumes/SD`).
+    mount: String,
+    total: u64,
+    available: u64,
+    removable: bool,
+    /// "SSD", "HDD", or "Unknown".
+    kind: String,
+}
+
+/// Enumerate mounted drives/volumes (cross-platform via `sysinfo`).
+#[tauri::command]
+fn list_drives() -> Vec<DriveInfo> {
+    let disks = sysinfo::Disks::new_with_refreshed_list();
+    let mut out: Vec<DriveInfo> = disks
+        .iter()
+        .map(|d| DriveInfo {
+            name: d.name().to_string_lossy().to_string(),
+            mount: d.mount_point().to_string_lossy().to_string(),
+            total: d.total_space(),
+            available: d.available_space(),
+            removable: d.is_removable(),
+            kind: format!("{:?}", d.kind()),
+        })
+        .collect();
+    out.sort_by(|a, b| a.mount.cmp(&b.mount));
+    out
+}
+
 /// Copy request sent from the UI.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -220,6 +254,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
+            list_drives,
             start_harvest,
             list_presets,
             save_preset,
