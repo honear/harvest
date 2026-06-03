@@ -27,6 +27,9 @@ pub struct DestReport {
 #[derive(Debug, Clone)]
 pub struct FileReport {
     pub source: PathBuf,
+    /// Path relative to the source root. Defaults to the file name; the
+    /// `harvest_files` layer overwrites it with the true relative path.
+    pub rel: PathBuf,
     pub bytes: u64,
     pub source_hash: String,
     pub dests: Vec<DestReport>,
@@ -115,6 +118,10 @@ pub fn copy_file_verified(
 
     Ok(FileReport {
         source: source.to_path_buf(),
+        rel: source
+            .file_name()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| source.to_path_buf()),
         bytes: total,
         source_hash,
         dests: dest_reports,

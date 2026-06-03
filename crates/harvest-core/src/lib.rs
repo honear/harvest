@@ -6,6 +6,7 @@
 
 pub mod copy;
 pub mod hash;
+pub mod journal;
 pub mod manifest;
 pub mod scan;
 
@@ -16,6 +17,7 @@ use rayon::prelude::*;
 
 pub use copy::{copy_file_verified, DestReport, FileReport};
 pub use hash::{hash_file, HashAlgo, Hasher};
+pub use journal::{Journal, JournalHeader, JournalRecord, JOURNAL_VERSION};
 pub use manifest::{to_mhl, to_sidecar, ManifestEntry};
 pub use scan::{scan, SourceFile};
 
@@ -55,10 +57,15 @@ pub fn harvest_files(
             let dests: Vec<PathBuf> = dest_roots.iter().map(|root| root.join(&f.rel)).collect();
             let result =
                 copy_file_verified(&f.abs, &dests, opts.algo, opts.verify, opts.buf_size);
-            if let Ok(report) = &result {
-                on_done(report);
+            match result {
+                Ok(mut report) => {
+                    // Record the true relative path (copy only knew the file name).
+                    report.rel = f.rel.clone();
+                    on_done(&report);
+                    Ok(report)
+                }
+                Err(e) => Err(e),
             }
-            result
         })
         .collect()
 }
