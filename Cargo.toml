@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/harvest-core", "crates/harvest-cli", "apps/desktop/src-tauri"]
+members = ["crates/harvest-core", "crates/harvest-cli", "desktop/src-tauri"]
 
 [workspace.package]
 version = "0.1.0"

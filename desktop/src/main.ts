@@ -1,9 +1,16 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+import { openPath } from "@tauri-apps/plugin-opener";
 
 // ---- types mirroring the Rust payloads ----------------------------------
 
+interface PathInfo {
+  files: number;
+  bytes: number;
+  freeSpace: number;
+  driveTotal: number;
+}
 interface Planned {
   totalScanned: number;
   kept: number;
@@ -74,6 +81,7 @@ function basename(p: string): string {
 
 let sources: string[] = [];
 let destinations: string[] = [];
+const infoCache: Record<string, PathInfo> = {};
 
 function renderColumn(role: "source" | "dest") {
   const items = role === "source" ? sources : destinations;
@@ -84,32 +92,80 @@ function renderColumn(role: "source" | "dest") {
     li.className = "drop-hint muted";
     li.textContent = "Nothing here yet — add a folder below.";
     el.appendChild(li);
+  } else {
+    items.forEach((path, i) => {
+      const li = document.createElement("li");
+      li.className = "drop-item";
+      const icon = document.createElement("div");
+      icon.className = "drop-item-icon";
+      icon.textContent = role === "source" ? "📁" : "🎯";
+      const info = document.createElement("div");
+      info.className = "drop-item-info";
+      const title = document.createElement("div");
+      title.className = "drop-item-name";
+      title.textContent = basename(path);
+      const sub = document.createElement("div");
+      sub.className = "drop-item-path muted";
+      sub.textContent = path;
+      info.append(title, sub);
+      const ci = infoCache[path];
+      if (ci) {
+        const stats = document.createElement("div");
+        stats.className = "drop-item-stats";
+        stats.textContent = `${ci.files.toLocaleString()} files · ${humanBytes(ci.bytes)}`;
+        info.appendChild(stats);
+      }
+      const rm = document.createElement("button");
+      rm.className = "ghost danger remove";
+      rm.textContent = "✕";
+      rm.title = "Remove";
+      rm.onclick = () => {
+        items.splice(i, 1);
+        renderColumn(role);
+        renderColumnInfo(role);
+        refreshActionState();
+      };
+      li.append(icon, info, rm);
+      el.appendChild(li);
+    });
+  }
+  renderColumnInfo(role);
+}
+
+function renderColumnInfo(role: "source" | "dest") {
+  const items = role === "source" ? sources : destinations;
+  const el = $(role === "source" ? "source-info" : "dest-info");
+  if (items.length === 0) {
+    el.textContent = "";
     return;
   }
-  items.forEach((path, i) => {
-    const li = document.createElement("li");
-    li.className = "drop-item";
-    const info = document.createElement("div");
-    info.className = "drop-item-info";
-    const title = document.createElement("div");
-    title.className = "drop-item-name";
-    title.textContent = basename(path);
-    const sub = document.createElement("div");
-    sub.className = "drop-item-path muted";
-    sub.textContent = path;
-    info.append(title, sub);
-    const rm = document.createElement("button");
-    rm.className = "ghost danger remove";
-    rm.textContent = "✕";
-    rm.title = "Remove";
-    rm.onclick = () => {
-      items.splice(i, 1);
-      renderColumn(role);
-      refreshActionState();
-    };
-    li.append(info, rm);
-    el.appendChild(li);
-  });
+  let files = 0;
+  let bytes = 0;
+  let known = 0;
+  for (const p of items) {
+    const ci = infoCache[p];
+    if (ci) {
+      files += ci.files;
+      bytes += ci.bytes;
+      known++;
+    }
+  }
+  let txt = known < items.length ? "measuring…" : `${files.toLocaleString()} files · ${humanBytes(bytes)}`;
+  if (role === "dest" && items.length) {
+    const ci = infoCache[items[0]];
+    if (ci && ci.driveTotal) txt += ` · ${humanBytes(ci.freeSpace)} free`;
+  }
+  el.textContent = txt;
+}
+
+async function inspect(path: string, role: "source" | "dest") {
+  try {
+    const info = await invoke<PathInfo>("inspect_path", { path });
+    infoCache[path] = info;
+    renderColumn(role);
+  } catch {
+    /* preview/no-tauri: ignore */
+  }
 }
 
 function addPath(role: "source" | "dest", path: string) {
@@ -118,6 +174,7 @@ function addPath(role: "source" | "dest", path: string) {
     items.push(path);
     renderColumn(role);
     refreshActionState();
+    inspect(path, role);
   }
 }
 
@@ -183,6 +240,8 @@ function loadTransfer(p: Preset) {
   applyOptions(p);
   refreshActionState();
   setStatus(`Loaded “${p.name}”.`, "ok");
+  sources.forEach((s) => inspect(s, "source"));
+  destinations.forEach((d) => inspect(d, "dest"));
 }
 
 function clearAll() {
@@ -207,7 +266,7 @@ async function refreshTransfers() {
   list.innerHTML = "";
   if (presets.length === 0) {
     list.innerHTML =
-      '<div class="muted transfer-empty">No saved transfers yet.<br/>Build one on the sides, then “Save Transfer”.</div>';
+      '<div class="muted transfer-empty"><span class="big">📦</span>No saved transfers yet.<br/>Build one on the sides, then “Save Transfer”.</div>';
     return;
   }
   for (const p of presets) {
@@ -219,12 +278,12 @@ async function refreshTransfers() {
       (p.dests ?? []).length > 1
         ? `${basename(p.dests[0])} +${p.dests.length - 1}`
         : (p.dests ?? []).map(basename).join(", ") || "—";
-    const tmpl = p.destTemplate ? ` · ${p.destTemplate}` : "";
+    const tmpl = p.destTemplate ? ` · 🗂️ ${p.destTemplate}` : "";
 
     const head = document.createElement("div");
     head.className = "transfer-head";
     head.innerHTML = `<div class="transfer-name">${p.name}</div>
-      <div class="transfer-route muted">${srcLabel} → ${dstLabel}</div>`;
+      <div class="transfer-route muted">📁 ${srcLabel} → 🎯 ${dstLabel}</div>`;
 
     const meta = document.createElement("div");
     meta.className = "transfer-meta muted";
@@ -234,7 +293,7 @@ async function refreshTransfers() {
     actions.className = "transfer-actions";
     const runBtn = document.createElement("button");
     runBtn.className = "primary small";
-    runBtn.textContent = "Run";
+    runBtn.textContent = "▶ Run";
     runBtn.onclick = () => {
       loadTransfer(p);
       start();
@@ -341,7 +400,7 @@ async function start() {
       manifestPath: agg.manifest,
       journalPath: agg.journal,
     });
-    setStatus(success ? "Done." : "Finished with problems.", success ? "ok" : "error");
+    setStatus(success ? "🌱 Done." : "Finished with problems.", success ? "ok" : "error");
   } catch (e) {
     setStatus(`Failed: ${e}`, "error");
   } finally {
@@ -366,11 +425,29 @@ function showResult(d: Done) {
   $("result-detail").textContent = detail.join("\n");
 }
 
-// ---- wire up --------------------------------------------------------------
+// ---- menu / dialogs -------------------------------------------------------
 
 function toggleOverlay(id: string, show: boolean) {
   ($(id) as HTMLElement).hidden = !show;
 }
+function toggleMenu(show?: boolean) {
+  const m = $("menu-pop");
+  m.hidden = show === undefined ? !m.hidden : !show;
+}
+
+async function openDestinationFolder() {
+  if (destinations.length === 0) {
+    setStatus("No destination to open.", "error");
+    return;
+  }
+  try {
+    await openPath(destinations[0]);
+  } catch (e) {
+    setStatus(`Could not open folder: ${e}`, "error");
+  }
+}
+
+// ---- wire up --------------------------------------------------------------
 
 window.addEventListener("DOMContentLoaded", async () => {
   renderColumn("source");
@@ -389,16 +466,36 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("start").onclick = start;
   $("save-transfer").onclick = saveTransfer;
   $("new-transfer").onclick = clearAll;
-
   $("open-options").onclick = () => toggleOverlay("options-overlay", true);
   $("close-options").onclick = () => toggleOverlay("options-overlay", false);
   $("close-result").onclick = () => toggleOverlay("result-overlay", false);
-  $("options-overlay").addEventListener("click", (e) => {
-    if (e.target === $("options-overlay")) toggleOverlay("options-overlay", false);
+  $("close-about").onclick = () => toggleOverlay("about-overlay", false);
+
+  // hamburger menu
+  $("menu-btn").onclick = (e) => {
+    e.stopPropagation();
+    toggleMenu();
+  };
+  document.addEventListener("click", () => toggleMenu(false));
+  $("menu-pop").addEventListener("click", (e) => e.stopPropagation());
+  $("menu-pop").querySelectorAll<HTMLButtonElement>("button").forEach((b) => {
+    b.onclick = () => {
+      toggleMenu(false);
+      switch (b.dataset.act) {
+        case "new": clearAll(); break;
+        case "save": saveTransfer(); break;
+        case "options": toggleOverlay("options-overlay", true); break;
+        case "manifests": openDestinationFolder(); break;
+        case "about": toggleOverlay("about-overlay", true); break;
+      }
+    };
   });
-  $("result-overlay").addEventListener("click", (e) => {
-    if (e.target === $("result-overlay")) toggleOverlay("result-overlay", false);
-  });
+
+  for (const id of ["options-overlay", "result-overlay", "about-overlay"]) {
+    $(id).addEventListener("click", (e) => {
+      if (e.target === $(id)) toggleOverlay(id, false);
+    });
+  }
 
   // backend events
   await listen<Planned>("harvest:planned", (e) => {

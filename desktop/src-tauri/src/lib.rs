@@ -46,6 +46,46 @@ fn list_drives() -> Vec<DriveInfo> {
     out
 }
 
+/// Summary of a chosen source/destination folder.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct PathInfo {
+    files: u64,
+    bytes: u64,
+    /// Free space on the containing drive (0 if unknown).
+    free_space: u64,
+    /// Total size of the containing drive (0 if unknown).
+    drive_total: u64,
+}
+
+/// Count the files/bytes under a folder and report the containing drive's
+/// free/total space. Runs off the UI thread.
+#[tauri::command]
+async fn inspect_path(path: String) -> PathInfo {
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = PathBuf::from(&path);
+        let (mut files, mut bytes) = (0u64, 0u64);
+        if let Ok(list) = harvest_core::scan(&p) {
+            files = list.len() as u64;
+            bytes = list.iter().map(|f| f.size).sum();
+        }
+        // Find the drive whose mount point is the longest prefix of `path`.
+        let disks = sysinfo::Disks::new_with_refreshed_list();
+        let needle = path.to_lowercase();
+        let mut best: Option<(usize, u64, u64)> = None;
+        for d in disks.iter() {
+            let mount = d.mount_point().to_string_lossy().to_lowercase();
+            if needle.starts_with(&mount) && best.map_or(true, |(len, _, _)| mount.len() > len) {
+                best = Some((mount.len(), d.available_space(), d.total_space()));
+            }
+        }
+        let (free_space, drive_total) = best.map(|(_, f, t)| (f, t)).unwrap_or((0, 0));
+        PathInfo { files, bytes, free_space, drive_total }
+    })
+    .await
+    .unwrap_or(PathInfo { files: 0, bytes: 0, free_space: 0, drive_total: 0 })
+}
+
 /// Copy request sent from the UI.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -271,6 +311,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             list_drives,
+            inspect_path,
             start_harvest,
             list_presets,
             save_preset,
