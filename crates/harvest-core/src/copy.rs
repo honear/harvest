@@ -30,6 +30,8 @@ pub struct FileReport {
     /// Path relative to the source root. Defaults to the file name; the
     /// `harvest_files` layer overwrites it with the true relative path.
     pub rel: PathBuf,
+    /// Source modification time (ns since Unix epoch); set by `harvest_files`.
+    pub mtime_ns: i128,
     pub bytes: u64,
     pub source_hash: String,
     pub dests: Vec<DestReport>,
@@ -122,6 +124,7 @@ pub fn copy_file_verified(
             .file_name()
             .map(PathBuf::from)
             .unwrap_or_else(|| source.to_path_buf()),
+        mtime_ns: 0,
         bytes: total,
         source_hash,
         dests: dest_reports,

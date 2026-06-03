@@ -5,21 +5,21 @@
 //!   harvest copy ./project ./archive --no-verify
 //!   harvest copy /path/to/SDCARD ./backupA --resume   # continue an interrupted run
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
-use std::time::{Instant, UNIX_EPOCH};
+use std::time::Instant;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
 use time::format_description::well_known::Rfc3339;
-use time::OffsetDateTime;
+use time::{Date, Month, OffsetDateTime, Time};
 
 use harvest_core::{
-    harvest_files, journal, scan, to_mhl, to_sidecar, HarvestOptions, HashAlgo, Journal,
+    harvest_files, journal, scan, to_mhl, to_sidecar, Filter, HarvestOptions, HashAlgo, Journal,
     JournalHeader, JournalRecord, ManifestEntry, SourceFile, JOURNAL_VERSION,
 };
 
@@ -48,6 +48,24 @@ enum Command {
         /// Skip read-back verification (faster, less safe).
         #[arg(long)]
         no_verify: bool,
+        /// Only copy these extensions (comma-separated, e.g. "mov,mxf,wav").
+        #[arg(long, value_name = "EXTS")]
+        include_ext: Option<String>,
+        /// Never copy these extensions (comma-separated, e.g. "tmp,thm").
+        #[arg(long, value_name = "EXTS")]
+        exclude_ext: Option<String>,
+        /// Skip files smaller than this size (e.g. 10MB, 500K).
+        #[arg(long, value_name = "SIZE")]
+        min_size: Option<String>,
+        /// Skip files larger than this size (e.g. 4GB).
+        #[arg(long, value_name = "SIZE")]
+        max_size: Option<String>,
+        /// Only files modified on or after this date (YYYY-MM-DD, UTC).
+        #[arg(long, value_name = "DATE")]
+        newer_than: Option<String>,
+        /// Only files modified before this date (YYYY-MM-DD, UTC).
+        #[arg(long, value_name = "DATE")]
+        older_than: Option<String>,
         /// Resume an interrupted run, skipping files already verified.
         #[arg(long)]
         resume: bool,
@@ -71,20 +89,37 @@ fn main() -> Result<()> {
             dests,
             hash,
             no_verify,
+            include_ext,
+            exclude_ext,
+            min_size,
+            max_size,
+            newer_than,
+            older_than,
             resume,
             journal,
             manifest,
             no_manifest,
-        } => run_copy(RunArgs {
-            source,
-            dests,
-            hash,
-            verify: !no_verify,
-            resume,
-            journal_path: journal,
-            manifest_path: manifest,
-            no_manifest,
-        }),
+        } => {
+            let filter = build_filter(
+                include_ext,
+                exclude_ext,
+                min_size,
+                max_size,
+                newer_than,
+                older_than,
+            )?;
+            run_copy(RunArgs {
+                source,
+                dests,
+                hash,
+                verify: !no_verify,
+                filter,
+                resume,
+                journal_path: journal,
+                manifest_path: manifest,
+                no_manifest,
+            })
+        }
     }
 }
 
@@ -93,10 +128,36 @@ struct RunArgs {
     dests: Vec<PathBuf>,
     hash: String,
     verify: bool,
+    filter: Filter,
     resume: bool,
     journal_path: Option<PathBuf>,
     manifest_path: Option<PathBuf>,
     no_manifest: bool,
+}
+
+/// Translate the CLI's string filter flags into a core [`Filter`].
+fn build_filter(
+    include_ext: Option<String>,
+    exclude_ext: Option<String>,
+    min_size: Option<String>,
+    max_size: Option<String>,
+    newer_than: Option<String>,
+    older_than: Option<String>,
+) -> Result<Filter> {
+    let parse_exts = |s: String| -> HashSet<String> {
+        s.split(',')
+            .map(|e| e.trim().trim_start_matches('.').to_lowercase())
+            .filter(|e| !e.is_empty())
+            .collect()
+    };
+    Ok(Filter {
+        include_ext: include_ext.map(parse_exts).filter(|s| !s.is_empty()),
+        exclude_ext: exclude_ext.map(parse_exts).unwrap_or_default(),
+        min_size: min_size.map(|s| parse_size(&s)).transpose()?,
+        max_size: max_size.map(|s| parse_size(&s)).transpose()?,
+        newer_than_ns: newer_than.map(|s| parse_date_ns(&s)).transpose()?,
+        older_than_ns: older_than.map(|s| parse_date_ns(&s)).transpose()?,
+    })
 }
 
 fn run_copy(args: RunArgs) -> Result<()> {
@@ -105,6 +166,7 @@ fn run_copy(args: RunArgs) -> Result<()> {
         dests,
         hash,
         verify,
+        filter,
         resume,
         journal_path,
         manifest_path,
@@ -118,9 +180,15 @@ fn run_copy(args: RunArgs) -> Result<()> {
     }
 
     println!("Scanning {} ...", source.display());
-    let all_files = scan(&source).context("scanning source")?;
+    let mut all_files = scan(&source).context("scanning source")?;
+    let scanned = all_files.len();
+    if !filter.is_empty() {
+        all_files.retain(|f| filter.accepts(f));
+        let removed = scanned - all_files.len();
+        println!("Filter kept {} of {scanned} files ({removed} excluded).", all_files.len());
+    }
     if all_files.is_empty() {
-        println!("No files found. Nothing to do.");
+        println!("No files to copy after scanning/filtering. Nothing to do.");
         return Ok(());
     }
 
@@ -147,9 +215,8 @@ fn run_copy(args: RunArgs) -> Result<()> {
     let mut skipped: Vec<ManifestEntry> = Vec::new();
     for f in &all_files {
         let rel_fwd = forward_slash(&f.rel);
-        let mt = fs::metadata(&f.abs).ok().map(|m| mtime_ns(&m)).unwrap_or(0);
         match done.get(&rel_fwd) {
-            Some(rec) if rec.size == f.size && rec.mtime_ns == mt => {
+            Some(rec) if rec.size == f.size && rec.mtime_ns == f.mtime_ns => {
                 skipped.push(ManifestEntry { rel: f.rel.clone(), size: rec.size, hash: rec.hash.clone() });
             }
             _ => to_copy.push(f.clone()),
@@ -209,11 +276,10 @@ fn run_copy(args: RunArgs) -> Result<()> {
 
             if report.all_ok() {
                 // Persist progress immediately so an interruption is resumable.
-                let mt = fs::metadata(&report.source).ok().map(|m| mtime_ns(&m)).unwrap_or(0);
                 let _ = journal.record(&JournalRecord {
                     rel: forward_slash(&report.rel),
                     size: report.bytes,
-                    mtime_ns: mt,
+                    mtime_ns: report.mtime_ns,
                     hash: report.source_hash.clone(),
                 });
             } else {
@@ -314,16 +380,40 @@ fn forward_slash(rel: &Path) -> String {
         .join("/")
 }
 
-/// Source modification time as nanoseconds relative to the Unix epoch
-/// (signed, so pre-1970 timestamps still round-trip).
-fn mtime_ns(meta: &fs::Metadata) -> i128 {
-    match meta.modified() {
-        Ok(t) => match t.duration_since(UNIX_EPOCH) {
-            Ok(d) => d.as_nanos() as i128,
-            Err(e) => -(e.duration().as_nanos() as i128),
-        },
-        Err(_) => 0,
+/// Parse a human size like "10MB", "500K", "1.5G", or a plain byte count.
+/// Units are binary (1 K = 1024).
+fn parse_size(s: &str) -> Result<u64> {
+    let s = s.trim();
+    let split = s
+        .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .unwrap_or(s.len());
+    let (num, unit) = s.split_at(split);
+    let value: f64 = num
+        .parse()
+        .with_context(|| format!("invalid size '{s}'"))?;
+    let mult: f64 = match unit.trim().to_ascii_uppercase().as_str() {
+        "" | "B" => 1.0,
+        "K" | "KB" => 1024.0,
+        "M" | "MB" => 1024.0 * 1024.0,
+        "G" | "GB" => 1024.0 * 1024.0 * 1024.0,
+        "T" | "TB" => 1024.0 * 1024.0 * 1024.0 * 1024.0,
+        other => bail!("unknown size unit '{other}' in '{s}'"),
+    };
+    Ok((value * mult) as u64)
+}
+
+/// Parse a `YYYY-MM-DD` date as nanoseconds since the Unix epoch (UTC midnight).
+fn parse_date_ns(s: &str) -> Result<i128> {
+    let parts: Vec<&str> = s.trim().split('-').collect();
+    if parts.len() != 3 {
+        bail!("invalid date '{s}' (expected YYYY-MM-DD)");
     }
+    let year: i32 = parts[0].parse().with_context(|| format!("invalid year in '{s}'"))?;
+    let month: u8 = parts[1].parse().with_context(|| format!("invalid month in '{s}'"))?;
+    let day: u8 = parts[2].parse().with_context(|| format!("invalid day in '{s}'"))?;
+    let date = Date::from_calendar_date(year, Month::try_from(month)?, day)
+        .with_context(|| format!("invalid date '{s}'"))?;
+    Ok(date.with_time(Time::MIDNIGHT).assume_utc().unix_timestamp_nanos())
 }
 
 /// Current time as an RFC-3339 string (UTC), for manifest timestamps.

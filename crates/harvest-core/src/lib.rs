@@ -5,6 +5,7 @@
 //! bytes copied off a card land intact on every destination drive.
 
 pub mod copy;
+pub mod filter;
 pub mod hash;
 pub mod journal;
 pub mod manifest;
@@ -16,10 +17,11 @@ use anyhow::Result;
 use rayon::prelude::*;
 
 pub use copy::{copy_file_verified, DestReport, FileReport};
+pub use filter::Filter;
 pub use hash::{hash_file, HashAlgo, Hasher};
 pub use journal::{Journal, JournalHeader, JournalRecord, JOURNAL_VERSION};
 pub use manifest::{to_mhl, to_sidecar, ManifestEntry};
-pub use scan::{scan, SourceFile};
+pub use scan::{mtime_ns, scan, SourceFile};
 
 /// 8 MiB streaming buffer — favors throughput on large media files.
 pub const DEFAULT_BUF_SIZE: usize = 8 * 1024 * 1024;
@@ -59,8 +61,9 @@ pub fn harvest_files(
                 copy_file_verified(&f.abs, &dests, opts.algo, opts.verify, opts.buf_size);
             match result {
                 Ok(mut report) => {
-                    // Record the true relative path (copy only knew the file name).
+                    // Carry source identity the copy layer didn't know about.
                     report.rel = f.rel.clone();
+                    report.mtime_ns = f.mtime_ns;
                     on_done(&report);
                     Ok(report)
                 }
