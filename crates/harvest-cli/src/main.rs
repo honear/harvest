@@ -41,6 +41,10 @@ enum Command {
         /// Skip read-back verification (faster, less safe).
         #[arg(long)]
         no_verify: bool,
+        /// Re-copy files even if already present at the destination
+        /// (by default, matching files are skipped).
+        #[arg(long)]
+        overwrite: bool,
         /// Only copy these extensions (comma-separated, e.g. "mov,mxf,wav").
         #[arg(long, value_name = "EXTS")]
         include_ext: Option<String>,
@@ -90,6 +94,7 @@ fn main() -> Result<()> {
             dests,
             hash,
             no_verify,
+            overwrite,
             include_ext,
             exclude_ext,
             min_size,
@@ -119,6 +124,7 @@ fn main() -> Result<()> {
                 algo,
                 verify: !no_verify,
                 resume,
+                skip_existing: !overwrite,
                 filter,
                 dest_template,
                 project,

@@ -151,80 +151,80 @@ body {
   margin-top: 10px;
 }
 
-/* center disk grid */
-.col-disks {
-  position: relative;
+/* center: saved transfers */
+.col-center {
   background: var(--bg-2);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
-  padding: 18px;
+  padding: 14px;
+  overflow: hidden;
+}
+.center-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.center-head h2 {
+  margin: 0;
+  text-align: left;
+}
+.transfer-list {
+  height: calc(100% - 34px);
   overflow-y: auto;
-}
-.disk-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 14px;
-  align-content: start;
-}
-.disk-loading {
-  grid-column: 1 / -1;
-  text-align: center;
-  padding: 30px 0;
-}
-.disk-card {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  gap: 10px;
+}
+.transfer-empty {
   text-align: center;
-  gap: 4px;
-  padding: 16px 10px 12px;
-  border-radius: 10px;
-  border: 1px solid transparent;
-  cursor: grab;
-  transition: background 0.15s, border-color 0.15s, transform 0.05s;
-}
-.disk-card:hover {
-  background: var(--panel);
-  border-color: var(--border);
-}
-.disk-card.dragging {
-  opacity: 0.5;
-}
-.disk-glyph {
-  font-size: 40px;
-  line-height: 1;
-}
-.disk-name {
-  font-weight: 600;
+  padding: 36px 16px;
+  line-height: 1.6;
   font-size: 13px;
 }
-.disk-size {
-  font-size: 11.5px;
+.transfer-card {
+  background: var(--panel);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  padding: 12px 14px;
+  transition: border-color 0.15s;
 }
-.disk-actions {
+.transfer-card:hover {
+  border-color: var(--border);
+}
+.transfer-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.transfer-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+.transfer-route {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.transfer-meta {
+  font-size: 11.5px;
+  margin-top: 4px;
+}
+.transfer-actions {
   display: flex;
   gap: 6px;
-  margin-top: 8px;
-  opacity: 0;
-  transition: opacity 0.15s;
+  margin-top: 10px;
 }
-.disk-card:hover .disk-actions {
-  opacity: 1;
-}
-.mini {
-  font-size: 11px;
-  padding: 4px 10px;
+button.small {
+  padding: 5px 12px;
+  font-size: 12.5px;
   border-radius: 6px;
 }
-.refresh {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border-radius: 8px;
-  font-size: 15px;
+button.primary.small {
+  padding: 5px 14px;
+  font-size: 12.5px;
 }
 
 /* ---- form controls ---- */

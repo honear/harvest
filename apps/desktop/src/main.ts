@@ -4,14 +4,6 @@ import { open } from "@tauri-apps/plugin-dialog";
 
 // ---- types mirroring the Rust payloads ----------------------------------
 
-interface DriveInfo {
-  name: string;
-  mount: string;
-  total: number;
-  available: number;
-  removable: boolean;
-  kind: string;
-}
 interface Planned {
   totalScanned: number;
   kept: number;
@@ -36,8 +28,11 @@ interface Done {
 }
 interface Preset {
   name: string;
+  sources: string[];
+  dests: string[];
   hash: string;
   verify: boolean;
+  skipExisting: boolean;
   includeExt?: string | null;
   excludeExt?: string | null;
   minSize?: string | null;
@@ -77,12 +72,8 @@ function basename(p: string): string {
 
 // ---- model: sources & destinations ---------------------------------------
 
-const sources: string[] = [];
-const destinations: string[] = [];
-
-function listFor(role: string) {
-  return role === "source" ? sources : destinations;
-}
+let sources: string[] = [];
+let destinations: string[] = [];
 
 function renderColumn(role: "source" | "dest") {
   const items = role === "source" ? sources : destinations;
@@ -91,7 +82,7 @@ function renderColumn(role: "source" | "dest") {
   if (items.length === 0) {
     const li = document.createElement("li");
     li.className = "drop-hint muted";
-    li.textContent = "Drag a drive here, or add a folder below.";
+    li.textContent = "Nothing here yet — add a folder below.";
     el.appendChild(li);
     return;
   }
@@ -122,75 +113,12 @@ function renderColumn(role: "source" | "dest") {
 }
 
 function addPath(role: "source" | "dest", path: string) {
-  const items = listFor(role);
+  const items = role === "source" ? sources : destinations;
   if (!items.includes(path)) {
     items.push(path);
     renderColumn(role);
     refreshActionState();
   }
-}
-
-// ---- disk grid ------------------------------------------------------------
-
-function diskIcon(d: DriveInfo): string {
-  if (d.removable) return "💾";
-  if (d.kind.toLowerCase().includes("ssd")) return "🗄️";
-  return "🖴";
-}
-
-async function loadDrives() {
-  const grid = $("disk-grid");
-  grid.innerHTML = '<div class="muted disk-loading">Scanning drives…</div>';
-  let drives: DriveInfo[] = [];
-  try {
-    drives = await invoke<DriveInfo[]>("list_drives");
-  } catch (e) {
-    grid.innerHTML = `<div class="muted">Could not list drives: ${e}</div>`;
-    return;
-  }
-  grid.innerHTML = "";
-  for (const d of drives) {
-    const card = document.createElement("div");
-    card.className = "disk-card";
-    card.draggable = true;
-    card.dataset.path = d.mount;
-
-    const label = d.name && d.name.length ? `${d.name} (${d.mount.replace(/[\\/]+$/, "")})` : d.mount;
-    card.innerHTML = `
-      <div class="disk-glyph">${diskIcon(d)}</div>
-      <div class="disk-name">${label}</div>
-      <div class="disk-size muted">${humanBytes(d.available)} free / ${humanBytes(d.total)}</div>
-      <div class="disk-actions">
-        <button class="mini" data-role="source">Source</button>
-        <button class="mini" data-role="dest">Dest</button>
-      </div>`;
-
-    card.addEventListener("dragstart", (ev) => {
-      ev.dataTransfer?.setData("text/plain", d.mount);
-      card.classList.add("dragging");
-    });
-    card.addEventListener("dragend", () => card.classList.remove("dragging"));
-    card.querySelectorAll<HTMLButtonElement>(".mini").forEach((b) => {
-      b.onclick = () => addPath(b.dataset.role as "source" | "dest", d.mount);
-    });
-    grid.appendChild(card);
-  }
-  if (drives.length === 0) grid.innerHTML = '<div class="muted">No drives found.</div>';
-}
-
-function wireDropTarget(role: "source" | "dest") {
-  const el = $(role === "source" ? "source-list" : "dest-list");
-  el.addEventListener("dragover", (ev) => {
-    ev.preventDefault();
-    el.classList.add("drag-over");
-  });
-  el.addEventListener("dragleave", () => el.classList.remove("drag-over"));
-  el.addEventListener("drop", (ev) => {
-    ev.preventDefault();
-    el.classList.remove("drag-over");
-    const path = ev.dataTransfer?.getData("text/plain");
-    if (path) addPath(role, path);
-  });
 }
 
 // ---- status / progress ----------------------------------------------------
@@ -208,18 +136,18 @@ function updateProgress(done: number, total: number, current: string) {
   ($("progress-fill") as HTMLElement).style.width = `${pct}%`;
   $("progress-current").textContent = current;
 }
-
 function refreshActionState() {
   const ready = sources.length > 0 && destinations.length > 0 && !running;
   ($("start") as HTMLButtonElement).disabled = !ready;
 }
 
-// ---- options drawer / presets gathering -----------------------------------
+// ---- options gathering ----------------------------------------------------
 
 function gatherCommon() {
   return {
     hash: val("hash") || "xxh64",
     verify: checked("verify"),
+    skipExisting: checked("skip-existing"),
     includeExt: orNull(val("include-ext")),
     excludeExt: orNull(val("exclude-ext")),
     minSize: orNull(val("min-size")),
@@ -230,6 +158,126 @@ function gatherCommon() {
     project: orNull(val("project")),
     writeManifest: checked("manifest"),
   };
+}
+
+function applyOptions(p: Preset) {
+  setVal("hash", p.hash || "xxh64");
+  setChecked("verify", p.verify);
+  setChecked("skip-existing", p.skipExisting);
+  setChecked("manifest", p.writeManifest);
+  setVal("include-ext", p.includeExt ?? "");
+  setVal("exclude-ext", p.excludeExt ?? "");
+  setVal("min-size", p.minSize ?? "");
+  setVal("max-size", p.maxSize ?? "");
+  setVal("newer-than", p.newerThan ?? "");
+  setVal("older-than", p.olderThan ?? "");
+  setVal("dest-template", p.destTemplate ?? "");
+  setVal("project", p.project ?? "");
+}
+
+function loadTransfer(p: Preset) {
+  sources = [...(p.sources ?? [])];
+  destinations = [...(p.dests ?? [])];
+  renderColumn("source");
+  renderColumn("dest");
+  applyOptions(p);
+  refreshActionState();
+  setStatus(`Loaded “${p.name}”.`, "ok");
+}
+
+function clearAll() {
+  sources = [];
+  destinations = [];
+  renderColumn("source");
+  renderColumn("dest");
+  setStatus("Cleared. Add a source and a destination to begin.");
+  refreshActionState();
+}
+
+// ---- saved transfers (center panel) ---------------------------------------
+
+async function refreshTransfers() {
+  const list = $("transfer-list");
+  let presets: Preset[] = [];
+  try {
+    presets = await invoke<Preset[]>("list_presets");
+  } catch {
+    presets = [];
+  }
+  list.innerHTML = "";
+  if (presets.length === 0) {
+    list.innerHTML =
+      '<div class="muted transfer-empty">No saved transfers yet.<br/>Build one on the sides, then “Save Transfer”.</div>';
+    return;
+  }
+  for (const p of presets) {
+    const card = document.createElement("div");
+    card.className = "transfer-card";
+
+    const srcLabel = (p.sources ?? []).map(basename).join(", ") || "—";
+    const dstLabel =
+      (p.dests ?? []).length > 1
+        ? `${basename(p.dests[0])} +${p.dests.length - 1}`
+        : (p.dests ?? []).map(basename).join(", ") || "—";
+    const tmpl = p.destTemplate ? ` · ${p.destTemplate}` : "";
+
+    const head = document.createElement("div");
+    head.className = "transfer-head";
+    head.innerHTML = `<div class="transfer-name">${p.name}</div>
+      <div class="transfer-route muted">${srcLabel} → ${dstLabel}</div>`;
+
+    const meta = document.createElement("div");
+    meta.className = "transfer-meta muted";
+    meta.textContent = `${p.hash}${p.verify ? " · verify" : ""}${p.skipExisting ? " · skip-existing" : ""}${tmpl}`;
+
+    const actions = document.createElement("div");
+    actions.className = "transfer-actions";
+    const runBtn = document.createElement("button");
+    runBtn.className = "primary small";
+    runBtn.textContent = "Run";
+    runBtn.onclick = () => {
+      loadTransfer(p);
+      start();
+    };
+    const loadBtn = document.createElement("button");
+    loadBtn.className = "ghost small";
+    loadBtn.textContent = "Load";
+    loadBtn.onclick = () => loadTransfer(p);
+    const delBtn = document.createElement("button");
+    delBtn.className = "ghost small danger";
+    delBtn.textContent = "Delete";
+    delBtn.onclick = async () => {
+      if (!confirm(`Delete transfer “${p.name}”?`)) return;
+      await invoke("delete_preset", { name: p.name });
+      await refreshTransfers();
+    };
+    actions.append(runBtn, loadBtn, delBtn);
+
+    card.append(head, meta, actions);
+    list.appendChild(card);
+  }
+}
+
+async function saveTransfer() {
+  if (sources.length === 0 && destinations.length === 0) {
+    setStatus("Add a source or destination before saving a transfer.", "error");
+    return;
+  }
+  const name = prompt("Save this transfer as:");
+  if (!name) return;
+  const preset: Preset = {
+    name,
+    sources: [...sources],
+    dests: [...destinations],
+    ...gatherCommon(),
+  };
+  try {
+    await invoke("save_preset", { preset });
+    await refreshTransfers();
+    setStatus(`Saved transfer “${name}”.`, "ok");
+  } catch (e) {
+    setStatus(`Could not save: ${e}`, "error");
+  }
 }
 
 // ---- running the harvest (sequential queue over sources) ------------------
@@ -261,7 +309,15 @@ async function start() {
   showProgress(true);
   ($("result-overlay") as HTMLElement).hidden = true;
 
-  const agg = { copied: 0, skipped: 0, bytes: 0, errors: [] as string[], fails: [] as string[], manifest: null as string | null, journal: "" };
+  const agg = {
+    copied: 0,
+    skipped: 0,
+    bytes: 0,
+    errors: [] as string[],
+    fails: [] as string[],
+    manifest: null as string | null,
+    journal: "",
+  };
   try {
     for (let i = 0; i < sources.length; i++) {
       setStatus(`Harvesting ${basename(sources[i])} (${i + 1}/${sources.length})…`);
@@ -300,7 +356,7 @@ function showResult(d: Done) {
   $("result-title").textContent = d.success ? "✓ Harvest complete" : "✗ Finished with problems";
   const summary = $("result-summary");
   summary.innerHTML = d.success
-    ? `${d.copied} copied, ${d.skipped} already done — <strong>${humanBytes(d.copiedBytes)}</strong> verified across ${destinations.length} destination(s).`
+    ? `${d.copied} copied, ${d.skipped} already present — <strong>${humanBytes(d.copiedBytes)}</strong> verified across ${destinations.length} destination(s).`
     : `${d.errors.length} error(s), ${d.verifyFailures.length} verification failure(s).`;
   const detail: string[] = [];
   if (d.manifestPath) detail.push(`Manifest: ${d.manifestPath}`);
@@ -308,67 +364,6 @@ function showResult(d: Done) {
   if (d.verifyFailures.length) detail.push("", "Verification failed:", ...d.verifyFailures.map((e) => "  " + e));
   if (!d.success) detail.push("", `Re-run with Resume enabled to continue (journal: ${d.journalPath}).`);
   $("result-detail").textContent = detail.join("\n");
-}
-
-// ---- presets --------------------------------------------------------------
-
-async function refreshPresets(selectName?: string) {
-  const presets = await invoke<Preset[]>("list_presets");
-  const sel = $("preset-select") as HTMLSelectElement;
-  sel.innerHTML = '<option value="">Preset…</option>';
-  for (const p of presets) {
-    const opt = document.createElement("option");
-    opt.value = p.name;
-    opt.textContent = p.name;
-    sel.appendChild(opt);
-  }
-  if (selectName) sel.value = selectName;
-}
-
-function applyPreset(p: Preset) {
-  setVal("hash", p.hash || "xxh64");
-  setChecked("verify", p.verify);
-  setChecked("manifest", p.writeManifest);
-  setVal("include-ext", p.includeExt ?? "");
-  setVal("exclude-ext", p.excludeExt ?? "");
-  setVal("min-size", p.minSize ?? "");
-  setVal("max-size", p.maxSize ?? "");
-  setVal("newer-than", p.newerThan ?? "");
-  setVal("older-than", p.olderThan ?? "");
-  setVal("dest-template", p.destTemplate ?? "");
-  setVal("project", p.project ?? "");
-}
-
-async function loadSelectedPreset() {
-  const name = (($("preset-select") as HTMLSelectElement).value || "").trim();
-  if (!name) return;
-  const presets = await invoke<Preset[]>("list_presets");
-  const p = presets.find((x) => x.name === name);
-  if (p) {
-    applyPreset(p);
-    setStatus(`Loaded preset “${name}”.`, "ok");
-  }
-}
-
-async function saveCurrentPreset() {
-  const name = prompt("Save preset as:");
-  if (!name) return;
-  const preset: Preset = { name, ...gatherCommon() };
-  try {
-    await invoke("save_preset", { preset });
-    await refreshPresets(name);
-    setStatus(`Saved preset “${name}”.`, "ok");
-  } catch (e) {
-    setStatus(`Could not save preset: ${e}`, "error");
-  }
-}
-
-async function deleteSelectedPreset() {
-  const name = (($("preset-select") as HTMLSelectElement).value || "").trim();
-  if (!name) return;
-  if (!confirm(`Delete preset “${name}”?`)) return;
-  await invoke("delete_preset", { name });
-  await refreshPresets();
 }
 
 // ---- wire up --------------------------------------------------------------
@@ -380,12 +375,9 @@ function toggleOverlay(id: string, show: boolean) {
 window.addEventListener("DOMContentLoaded", async () => {
   renderColumn("source");
   renderColumn("dest");
-  wireDropTarget("source");
-  wireDropTarget("dest");
   refreshActionState();
-  await loadDrives();
+  await refreshTransfers();
 
-  $("refresh-disks").onclick = loadDrives;
   $("add-source").onclick = async () => {
     const f = await open({ directory: true, multiple: false });
     if (typeof f === "string") addPath("source", f);
@@ -395,6 +387,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (typeof f === "string") addPath("dest", f);
   };
   $("start").onclick = start;
+  $("save-transfer").onclick = saveTransfer;
+  $("new-transfer").onclick = clearAll;
 
   $("open-options").onclick = () => toggleOverlay("options-overlay", true);
   $("close-options").onclick = () => toggleOverlay("options-overlay", false);
@@ -405,10 +399,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("result-overlay").addEventListener("click", (e) => {
     if (e.target === $("result-overlay")) toggleOverlay("result-overlay", false);
   });
-
-  ($("preset-select") as HTMLSelectElement).onchange = loadSelectedPreset;
-  $("preset-save").onclick = saveCurrentPreset;
-  $("preset-delete").onclick = deleteSelectedPreset;
 
   // backend events
   await listen<Planned>("harvest:planned", (e) => {
@@ -431,7 +421,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (resolveCurrent) {
       const r = resolveCurrent;
       resolveCurrent = null;
-      // resolve as a failed Done so the queue continues/stops gracefully
       r({
         success: false,
         copied: 0,
@@ -444,6 +433,4 @@ window.addEventListener("DOMContentLoaded", async () => {
       });
     }
   });
-
-  await refreshPresets();
 });

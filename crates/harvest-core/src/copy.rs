@@ -59,6 +59,10 @@ pub fn copy_file_verified(
     buf_size: usize,
 ) -> Result<FileReport> {
     let src = File::open(source).with_context(|| format!("opening source {}", source.display()))?;
+    // Capture the source's modification time so we can stamp it onto each
+    // destination — preserving record dates for date-organized archives and
+    // making "skip already-present" re-runs match reliably.
+    let src_modified = src.metadata().ok().and_then(|m| m.modified().ok());
     let mut reader = BufReader::with_capacity(buf_size, src);
 
     // Create parent directories and open a writer per destination.
@@ -93,9 +97,13 @@ pub fn copy_file_verified(
     // otherwise verification could pass against the OS cache, not the platter.
     for (w, dest) in writers.iter_mut().zip(dests) {
         w.flush().with_context(|| format!("flushing {}", dest.display()))?;
-        w.get_ref()
-            .sync_all()
+        let f = w.get_ref();
+        f.sync_all()
             .with_context(|| format!("syncing {} to disk", dest.display()))?;
+        // Preserve the source timestamp (best-effort; ignore on read-only FS).
+        if let Some(t) = src_modified {
+            let _ = f.set_modified(t);
+        }
     }
     drop(writers);
 

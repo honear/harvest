@@ -55,6 +55,7 @@ pub struct CopyRequest {
     pub hash: String,
     pub verify: bool,
     pub resume: bool,
+    pub skip_existing: bool,
     pub include_ext: Option<String>,
     pub exclude_ext: Option<String>,
     pub min_size: Option<String>,
@@ -106,8 +107,14 @@ struct DonePayload {
 #[serde(rename_all = "camelCase")]
 pub struct Preset {
     pub name: String,
+    #[serde(default)]
+    pub sources: Vec<String>,
+    #[serde(default)]
+    pub dests: Vec<String>,
     pub hash: String,
     pub verify: bool,
+    #[serde(default = "default_true")]
+    pub skip_existing: bool,
     #[serde(default)]
     pub include_ext: Option<String>,
     #[serde(default)]
@@ -149,6 +156,7 @@ fn build_config(req: CopyRequest) -> anyhow::Result<HarvestConfig> {
         algo,
         verify: req.verify,
         resume: req.resume,
+        skip_existing: req.skip_existing,
         filter,
         dest_template: req.dest_template.filter(|s| !s.trim().is_empty()),
         project: req.project.unwrap_or_default(),
@@ -167,6 +175,9 @@ fn start_harvest(app: AppHandle, req: CopyRequest) -> Result<(), String> {
 
     std::thread::spawn(move || {
         let emitter = app.clone();
+        // Throttle per-file progress so cards with thousands of clips don't
+        // flood the UI; the final totals always arrive via harvest:done.
+        let last = std::sync::Mutex::new(std::time::Instant::now());
         let result = run_harvest(&cfg, move |event| match event {
             HarvestEvent::Planned { total_scanned, kept, to_copy, skipped, copy_bytes } => {
                 let _ = emitter.emit(
@@ -175,10 +186,15 @@ fn start_harvest(app: AppHandle, req: CopyRequest) -> Result<(), String> {
                 );
             }
             HarvestEvent::FileDone { rel, dest, bytes, done_files, done_bytes, ok } => {
-                let _ = emitter.emit(
-                    "harvest:progress",
-                    ProgressPayload { rel, dest, bytes, done_files, done_bytes, ok },
-                );
+                let mut guard = last.lock().unwrap();
+                if guard.elapsed().as_millis() >= 80 {
+                    *guard = std::time::Instant::now();
+                    drop(guard);
+                    let _ = emitter.emit(
+                        "harvest:progress",
+                        ProgressPayload { rel, dest, bytes, done_files, done_bytes, ok },
+                    );
+                }
             }
         });
 

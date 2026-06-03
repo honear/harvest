@@ -29,6 +29,9 @@ pub struct HarvestConfig {
     pub algo: HashAlgo,
     pub verify: bool,
     pub resume: bool,
+    /// Skip files already present at every destination (matched by path, size,
+    /// and modification time) — incremental copy without needing a journal.
+    pub skip_existing: bool,
     pub filter: Filter,
     /// Destination path template (e.g. `"{project}/{YYYY}-{MM}-{DD}/{filename}"`).
     pub dest_template: Option<String>,
@@ -101,6 +104,19 @@ fn now_iso() -> String {
         .unwrap_or_else(|_| "unknown".into())
 }
 
+/// True if `target_rel` already exists at every destination root with a
+/// matching size and (within ~2s) modification time.
+fn present_at_all(dests: &[PathBuf], target_rel: &Path, size: u64, mtime_ns: i128) -> bool {
+    dests.iter().all(|root| {
+        match std::fs::metadata(root.join(target_rel)) {
+            Ok(m) if m.is_file() && m.len() == size => {
+                (crate::scan::mtime_ns(&m) - mtime_ns).abs() <= 2_000_000_000
+            }
+            _ => false,
+        }
+    })
+}
+
 fn default_journal_path(dests: &[PathBuf]) -> PathBuf {
     let root = dests.first().cloned().unwrap_or_else(|| PathBuf::from("."));
     root.join(JOURNAL_NAME)
@@ -171,26 +187,36 @@ pub fn run_harvest(cfg: &HarvestConfig, on_event: impl Fn(HarvestEvent) + Sync) 
         }
     }
 
-    // Partition into work vs. already-verified-and-unchanged.
+    // Partition into work vs. already done. A file is skipped if either the
+    // journal already recorded it (resume), or it is already present at every
+    // destination with a matching size + mtime (skip_existing).
     let mut to_copy: Vec<SourceFile> = Vec::new();
     let mut skipped: Vec<ManifestEntry> = Vec::new();
+    let mut existing_skipped: usize = 0;
     for f in &all_files {
         let rel_fwd = forward_slash(&f.rel);
-        match done.get(&rel_fwd) {
-            Some(rec) if rec.size == f.size && rec.mtime_ns == f.mtime_ns => {
+        if let Some(rec) = done.get(&rel_fwd) {
+            if rec.size == f.size && rec.mtime_ns == f.mtime_ns {
                 let dest = if rec.dest.is_empty() { rec.rel.clone() } else { rec.dest.clone() };
                 skipped.push(ManifestEntry { rel: PathBuf::from(dest), size: rec.size, hash: rec.hash.clone() });
+                continue;
             }
-            _ => to_copy.push(f.clone()),
         }
+        let target_rel = f.dest_rel.as_deref().unwrap_or(&f.rel);
+        if cfg.skip_existing && present_at_all(&cfg.dests, target_rel, f.size, f.mtime_ns) {
+            existing_skipped += 1;
+            continue;
+        }
+        to_copy.push(f.clone());
     }
 
+    let total_skipped = skipped.len() + existing_skipped;
     let copy_bytes: u64 = to_copy.iter().map(|f| f.size).sum();
     on_event(HarvestEvent::Planned {
         total_scanned,
         kept,
         to_copy: to_copy.len(),
-        skipped: skipped.len(),
+        skipped: total_skipped,
         copy_bytes,
     });
 
@@ -254,7 +280,7 @@ pub fn run_harvest(cfg: &HarvestConfig, on_event: impl Fn(HarvestEvent) + Sync) 
 
     let mut outcome = HarvestOutcome {
         copied: results.iter().filter(|r| r.is_ok()).count(),
-        skipped: skipped.len(),
+        skipped: total_skipped,
         copied_bytes: done_bytes.load(Ordering::Relaxed),
         verify_failures,
         errors,
@@ -294,4 +320,73 @@ pub fn run_harvest(cfg: &HarvestConfig, on_event: impl Fn(HarvestEvent) + Sync) 
     }
 
     Ok(outcome)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    fn temp_dir() -> PathBuf {
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("harvest_run_{}_{n}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn cfg(source: PathBuf, dest: PathBuf) -> HarvestConfig {
+        HarvestConfig {
+            source,
+            dests: vec![dest],
+            algo: HashAlgo::Xxh64,
+            verify: true,
+            resume: false,
+            skip_existing: true,
+            filter: Filter::default(),
+            dest_template: None,
+            project: String::new(),
+            write_manifest: false,
+            journal_path: None,
+            manifest_path: None,
+        }
+    }
+
+    #[test]
+    fn rerun_skips_files_already_present() {
+        let root = temp_dir();
+        let src = root.join("src");
+        std::fs::create_dir_all(src.join("clips")).unwrap();
+        std::fs::write(src.join("clips/a.bin"), vec![1u8; 5000]).unwrap();
+        std::fs::write(src.join("b.txt"), b"hello").unwrap();
+        let dest = root.join("dest");
+
+        let c = cfg(src, dest);
+        let first = run_harvest(&c, |_| {}).unwrap();
+        assert_eq!(first.copied, 2, "first run copies both files");
+        assert_eq!(first.skipped, 0);
+        assert!(first.success());
+
+        // Second run: mtime was preserved, so both files are recognized.
+        let second = run_harvest(&c, |_| {}).unwrap();
+        assert_eq!(second.copied, 0, "nothing should be re-copied");
+        assert_eq!(second.skipped, 2, "both files recognized as already present");
+    }
+
+    #[test]
+    fn skip_existing_off_recopies() {
+        let root = temp_dir();
+        let src = root.join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("a.bin"), vec![7u8; 1234]).unwrap();
+        let dest = root.join("dest");
+
+        let mut c = cfg(src, dest);
+        run_harvest(&c, |_| {}).unwrap();
+        c.skip_existing = false;
+        let again = run_harvest(&c, |_| {}).unwrap();
+        assert_eq!(again.copied, 1, "with skip_existing off, the file is copied again");
+        assert_eq!(again.skipped, 0);
+    }
 }

@@ -17,13 +17,9 @@
           <span class="name">Harvest</span>
           <span class="badge">0.1 · β</span>
         </div>
-        <div class="topbar-center" id="topbar-title">Disks</div>
+        <div class="topbar-center" id="topbar-title">Transfers</div>
         <div class="topbar-actions">
-          <select id="preset-select" title="Presets">
-            <option value="">Preset…</option>
-          </select>
-          <button id="preset-save" class="ghost" title="Save current settings">Save</button>
-          <button id="preset-delete" class="ghost" title="Delete selected preset">Delete</button>
+          <button id="save-transfer" class="ghost">Save Transfer</button>
           <button id="open-options" class="ghost">Options</button>
         </div>
       </header>
@@ -33,25 +29,28 @@
         <section class="col">
           <h2>Sources</h2>
           <ul id="source-list" class="droplist" data-role="source"></ul>
-          <button id="add-source" class="add-folder" title="Add a folder as source">+ Folder</button>
+          <button id="add-source" class="add-folder" title="Add a folder as source">+ Add folder</button>
         </section>
 
-        <section class="col col-disks">
-          <div id="disk-grid" class="disk-grid"></div>
-          <button id="refresh-disks" class="refresh ghost" title="Refresh drives">⟳</button>
+        <section class="col col-center">
+          <div class="center-head">
+            <h2>Saved Transfers</h2>
+            <button id="new-transfer" class="ghost small" title="Clear the current selection">New</button>
+          </div>
+          <div id="transfer-list" class="transfer-list"></div>
         </section>
 
         <section class="col">
           <h2>Destinations</h2>
           <ul id="dest-list" class="droplist" data-role="dest"></ul>
-          <button id="add-dest" class="add-folder" title="Add a folder as destination">+ Folder</button>
+          <button id="add-dest" class="add-folder" title="Add a folder as destination">+ Add folder</button>
         </section>
       </main>
 
       <!-- bottom action bar -->
       <footer class="actionbar">
         <div class="action-info">
-          <span id="status" class="status">Drag a drive into Sources and Destinations to begin.</span>
+          <span id="status" class="status">Add a source and a destination to begin.</span>
           <div class="progress-track" id="progress-track" hidden>
             <div id="progress-fill" class="progress-fill"></div>
           </div>
@@ -80,7 +79,8 @@
             </label>
             <div class="checks">
               <label class="check"><input type="checkbox" id="verify" checked /> Read-back verification</label>
-              <label class="check"><input type="checkbox" id="resume" /> Resume / skip already-copied</label>
+              <label class="check"><input type="checkbox" id="skip-existing" checked /> Skip files already at destination</label>
+              <label class="check"><input type="checkbox" id="resume" /> Resume interrupted transfer</label>
               <label class="check"><input type="checkbox" id="manifest" checked /> Write manifest</label>
             </div>
           </div>
@@ -104,7 +104,7 @@
           </div>
           <p class="hint muted">
             Tokens: {filename} {name} {ext} {reldir} {project} {YYYY} {MM} {DD} (job date)
-            {fYYYY} {fMM} {fDD} (file date). Leave blank to mirror the source tree.
+            {fYYYY} {fMM} {fDD} (file's recorded date). Leave blank to mirror the source tree.
           </p>
         </div>
       </aside>
