@@ -66,12 +66,15 @@ fn eject_drive(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         // Use the Shell "Eject" verb on the drive (e.g. E:\).
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         let ps = format!(
             "(New-Object -ComObject Shell.Application).Namespace(17).ParseName('{}').InvokeVerb('Eject')",
             mount.replace('\'', "")
         );
         let ok = std::process::Command::new("powershell")
             .args(["-NoProfile", "-NonInteractive", "-Command", &ps])
+            .creation_flags(CREATE_NO_WINDOW)
             .status()
             .map(|s| s.success())
             .unwrap_or(false);
@@ -79,40 +82,6 @@ fn eject_drive(path: String) -> Result<(), String> {
     }
     #[allow(unreachable_code)]
     Err("eject not supported on this platform".into())
-}
-
-/// A mounted drive/volume shown in the center "Disks" panel.
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct DriveInfo {
-    /// Volume label (may be empty).
-    name: String,
-    /// Mount point / drive root (e.g. `C:\` or `/Volumes/SD`).
-    mount: String,
-    total: u64,
-    available: u64,
-    removable: bool,
-    /// "SSD", "HDD", or "Unknown".
-    kind: String,
-}
-
-/// Enumerate mounted drives/volumes (cross-platform via `sysinfo`).
-#[tauri::command]
-fn list_drives() -> Vec<DriveInfo> {
-    let disks = sysinfo::Disks::new_with_refreshed_list();
-    let mut out: Vec<DriveInfo> = disks
-        .iter()
-        .map(|d| DriveInfo {
-            name: d.name().to_string_lossy().to_string(),
-            mount: d.mount_point().to_string_lossy().to_string(),
-            total: d.total_space(),
-            available: d.available_space(),
-            removable: d.is_removable(),
-            kind: format!("{:?}", d.kind()),
-        })
-        .collect();
-    out.sort_by(|a, b| a.mount.cmp(&b.mount));
-    out
 }
 
 /// Summary of a chosen source/destination folder.
@@ -745,7 +714,6 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .manage(Cancel::default())
         .invoke_handler(tauri::generate_handler![
-            list_drives,
             inspect_path,
             scan_dir,
             plan_harvest,
