@@ -20,7 +20,8 @@
           <div id="menu-pop" class="menu-pop" hidden>
             <button data-act="new">New transfer</button>
             <button data-act="save">Save transfer</button>
-            <button data-act="options">Options…</button>
+            <button data-act="options">Options (this transfer)…</button>
+            <button data-act="settings">Settings…</button>
             <div class="menu-sep"></div>
             <button data-act="survey">Survey a drive…</button>
             <button data-act="verify">Verify destinations…</button>
@@ -141,6 +142,46 @@
             Tokens: {filename} {name} {ext} {reldir} {project} {YYYY} {MM} {DD} (job date)
             {fYYYY} {fMM} {fDD} (file's recorded date). Leave blank to mirror the source tree.
           </p>
+        </div>
+      </aside>
+    </div>
+
+    <!-- settings drawer (global) -->
+    <div id="settings-overlay" class="overlay" hidden>
+      <aside class="drawer" id="settings-drawer">
+        <div class="drawer-head">
+          <h2>Settings</h2>
+          <button id="close-settings" class="primary small">Done</button>
+        </div>
+        <div class="drawer-body">
+          <p class="hint muted">App-wide settings. Defaults seed every new transfer; behaviors apply to all transfers.</p>
+
+          <h3>Defaults for new transfers</h3>
+          <div class="grid">
+            <label>Checksum
+              <select id="s-default-hash">
+                <option value="xxh64">xxHash64 (fast, MHL standard)</option>
+                <option value="xxh3">xxHash3 (fastest)</option>
+                <option value="md5">MD5 (compatibility)</option>
+              </select>
+            </label>
+            <div class="checks">
+              <label class="check"><input type="checkbox" id="s-verify" /> Read-back verification</label>
+              <label class="check"><input type="checkbox" id="s-skip" /> Skip files already at destination</label>
+              <label class="check"><input type="checkbox" id="s-manifest" /> Write manifest</label>
+            </div>
+            <label class="wide">Default excluded extensions (junk to always skip)
+              <input id="s-exclude-ext" placeholder="tmp,thm,ds_store" />
+            </label>
+          </div>
+
+          <h3>Behaviors</h3>
+          <div class="checks">
+            <label class="check"><input type="checkbox" id="s-confirm" /> Show the compare/confirm dialog before harvesting</label>
+            <label class="check"><input type="checkbox" id="s-notify" /> Show a notification when a transfer finishes</label>
+            <label class="check"><input type="checkbox" id="s-eject" /> Auto-eject a removable source after a verified copy</label>
+            <label class="check"><input type="checkbox" id="s-keepawake" /> Keep the computer awake during a transfer</label>
+          </div>
         </div>
       </aside>
     </div>

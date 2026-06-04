@@ -52,7 +52,30 @@ interface Done {
   manifestPath: string | null;
   journalPath: string;
   cancelled: boolean;
+  ejected: boolean;
 }
+interface Settings {
+  defaultHash: string;
+  defaultVerify: boolean;
+  defaultSkipExisting: boolean;
+  defaultWriteManifest: boolean;
+  defaultExcludeExt: string;
+  confirmBeforeHarvest: boolean;
+  notify: boolean;
+  autoEject: boolean;
+  keepAwake: boolean;
+}
+const DEFAULT_SETTINGS: Settings = {
+  defaultHash: "xxh64",
+  defaultVerify: true,
+  defaultSkipExisting: true,
+  defaultWriteManifest: true,
+  defaultExcludeExt: "",
+  confirmBeforeHarvest: true,
+  notify: true,
+  autoEject: false,
+  keepAwake: true,
+};
 interface HistoryEntry {
   when: number;
   source: string;
@@ -114,6 +137,8 @@ let sources: string[] = [];
 let destinations: string[] = [];
 let excludePaths: string[] = [];
 const infoCache: Record<string, PathInfo> = {};
+
+let settings: Settings = { ...DEFAULT_SETTINGS };
 
 // Sow / Survey visualizer state
 let sowSource = "";
@@ -596,15 +621,76 @@ function loadTransfer(p: Preset) {
   destinations.forEach((d) => inspect(d, "dest"));
 }
 
+/// Seed the per-transfer Options form from the global Settings defaults.
+function applyDefaultsToOptions() {
+  setVal("hash", settings.defaultHash || "xxh64");
+  setChecked("verify", settings.defaultVerify);
+  setChecked("skip-existing", settings.defaultSkipExisting);
+  setChecked("manifest", settings.defaultWriteManifest);
+  setVal("exclude-ext", settings.defaultExcludeExt ?? "");
+  setVal("include-ext", "");
+  setVal("min-size", "");
+  setVal("max-size", "");
+  setVal("newer-than", "");
+  setVal("older-than", "");
+  setVal("dest-template", "");
+  setVal("project", "");
+  setChecked("resume", false);
+  setChecked("owner-only", false);
+}
+
 function clearAll() {
   sources = [];
   destinations = [];
   excludePaths = [];
+  applyDefaultsToOptions();
   renderColumn("source");
   renderColumn("dest");
   renderExclusions();
   setStatus("Cleared. Add a source and a destination to begin.");
   refreshActionState();
+}
+
+// ---- global settings ------------------------------------------------------
+
+async function loadSettings() {
+  try {
+    settings = await invoke<Settings>("get_settings");
+  } catch {
+    settings = { ...DEFAULT_SETTINGS };
+  }
+}
+function fillSettingsForm() {
+  setVal("s-default-hash", settings.defaultHash || "xxh64");
+  setChecked("s-verify", settings.defaultVerify);
+  setChecked("s-skip", settings.defaultSkipExisting);
+  setChecked("s-manifest", settings.defaultWriteManifest);
+  setVal("s-exclude-ext", settings.defaultExcludeExt ?? "");
+  setChecked("s-confirm", settings.confirmBeforeHarvest);
+  setChecked("s-notify", settings.notify);
+  setChecked("s-eject", settings.autoEject);
+  setChecked("s-keepawake", settings.keepAwake);
+}
+function gatherSettings(): Settings {
+  return {
+    defaultHash: val("s-default-hash") || "xxh64",
+    defaultVerify: checked("s-verify"),
+    defaultSkipExisting: checked("s-skip"),
+    defaultWriteManifest: checked("s-manifest"),
+    defaultExcludeExt: val("s-exclude-ext"),
+    confirmBeforeHarvest: checked("s-confirm"),
+    notify: checked("s-notify"),
+    autoEject: checked("s-eject"),
+    keepAwake: checked("s-keepawake"),
+  };
+}
+async function saveSettings() {
+  settings = gatherSettings();
+  try {
+    await invoke("save_settings", { settings });
+  } catch (e) {
+    setStatus(`Could not save settings: ${e}`, "error");
+  }
 }
 
 // ---- saved transfers ------------------------------------------------------
@@ -691,6 +777,10 @@ async function onHarvest() {
     setStatus("Add at least one source and one destination.", "error");
     return;
   }
+  if (!settings.confirmBeforeHarvest) {
+    runQueue();
+    return;
+  }
   // Aggregate a plan across all sources.
   const agg = { total: 0, new: 0, present: 0, conflict: 0, copyBytes: 0, destFree: 0 };
   try {
@@ -759,7 +849,7 @@ async function runQueue() {
   const agg = {
     copied: 0, skipped: 0, bytes: 0,
     errors: [] as string[], fails: [] as string[],
-    manifest: null as string | null, journal: "", cancelled: false,
+    manifest: null as string | null, journal: "", cancelled: false, ejected: false,
   };
   try {
     for (let i = 0; i < sources.length; i++) {
@@ -771,6 +861,7 @@ async function runQueue() {
       agg.errors.push(...d.errors);
       agg.fails.push(...d.verifyFailures);
       if (d.manifestPath) agg.manifest = d.manifestPath;
+      if (d.ejected) agg.ejected = true;
       agg.journal = d.journalPath;
       if (d.cancelled) {
         agg.cancelled = true;
@@ -781,7 +872,7 @@ async function runQueue() {
     showResult({
       success, copied: agg.copied, skipped: agg.skipped, copiedBytes: agg.bytes,
       verifyFailures: agg.fails, errors: agg.errors,
-      manifestPath: agg.manifest, journalPath: agg.journal, cancelled: agg.cancelled,
+      manifestPath: agg.manifest, journalPath: agg.journal, cancelled: agg.cancelled, ejected: agg.ejected,
     });
     setStatus(agg.cancelled ? "Cancelled." : success ? "Done." : "Finished with problems.", success ? "ok" : "error");
   } catch (e) {
@@ -833,7 +924,7 @@ async function runVerify() {
       {
         success, copied: agg.ok, skipped: 0, copiedBytes: agg.bytes,
         verifyFailures: agg.fails, errors: agg.errors,
-        manifestPath: null, journalPath: "", cancelled: agg.cancelled,
+        manifestPath: null, journalPath: "", cancelled: agg.cancelled, ejected: false,
       },
       { verify: true },
     );
@@ -870,7 +961,9 @@ function showResult(d: Done, opts: { verify?: boolean } = {}) {
   // Offer to eject any removable source (after a successful copy).
   const eject = $("result-eject");
   eject.innerHTML = "";
-  if (d.success && !opts.verify) {
+  if (d.ejected) {
+    eject.innerHTML = `<div class="status ok">⏏ Source ejected — safe to remove.</div>`;
+  } else if (d.success && !opts.verify) {
     for (const src of sources) {
       if (infoCache[src]?.removable) {
         const b = document.createElement("button");
@@ -948,11 +1041,18 @@ async function openDestinationFolder() {
 // ---- wire up --------------------------------------------------------------
 
 window.addEventListener("DOMContentLoaded", async () => {
+  await loadSettings();
+  applyDefaultsToOptions();
   renderColumn("source");
   renderColumn("dest");
   renderExclusions();
   refreshActionState();
   await refreshTransfers();
+
+  // Auto-save global settings whenever a settings field changes.
+  for (const id of ["s-default-hash", "s-verify", "s-skip", "s-manifest", "s-exclude-ext", "s-confirm", "s-notify", "s-eject", "s-keepawake"]) {
+    $(id).addEventListener("change", saveSettings);
+  }
 
   $("add-source").onclick = async () => {
     const f = await open({ directory: true, multiple: false });
@@ -997,6 +1097,10 @@ window.addEventListener("DOMContentLoaded", async () => {
     toggleOverlay("options-overlay", false);
     reRenderIfSow();
   };
+  $("close-settings").onclick = async () => {
+    await saveSettings();
+    toggleOverlay("settings-overlay", false);
+  };
   // Live-update the Sow treemap as Options filters change.
   for (const id of ["include-ext", "exclude-ext", "min-size", "max-size", "newer-than", "older-than"]) {
     $(id).addEventListener("input", reRenderIfSow);
@@ -1022,6 +1126,7 @@ window.addEventListener("DOMContentLoaded", async () => {
         case "new": clearAll(); break;
         case "save": saveTransfer(); break;
         case "options": toggleOverlay("options-overlay", true); break;
+        case "settings": fillSettingsForm(); toggleOverlay("settings-overlay", true); break;
         case "survey": enterSurvey(); break;
         case "verify": runVerify(); break;
         case "manifests": openDestinationFolder(); break;
@@ -1031,7 +1136,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     };
   });
 
-  for (const id of ["options-overlay", "result-overlay", "about-overlay", "plan-overlay", "history-overlay"]) {
+  for (const id of ["options-overlay", "settings-overlay", "result-overlay", "about-overlay", "plan-overlay", "history-overlay"]) {
     $(id).addEventListener("click", (e) => {
       if (e.target === $(id)) toggleOverlay(id, false);
     });
@@ -1060,7 +1165,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       r({
         success: false, copied: 0, skipped: 0, copiedBytes: 0,
         verifyFailures: [], errors: [String(e.payload)],
-        manifestPath: null, journalPath: "", cancelled: false,
+        manifestPath: null, journalPath: "", cancelled: false, ejected: false,
       });
     }
   });

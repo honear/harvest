@@ -285,6 +285,7 @@ struct DonePayload {
     manifest_path: Option<String>,
     journal_path: String,
     cancelled: bool,
+    ejected: bool,
 }
 
 /// One past run, persisted to history.json.
@@ -341,6 +342,74 @@ pub struct Preset {
 
 fn default_true() -> bool {
     true
+}
+fn default_hash() -> String {
+    "xxh64".into()
+}
+
+/// Global, app-wide settings (defaults for new transfers + behaviors).
+/// Distinct from per-transfer Options, which live on each preset.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Settings {
+    #[serde(default = "default_hash")]
+    pub default_hash: String,
+    #[serde(default = "default_true")]
+    pub default_verify: bool,
+    #[serde(default = "default_true")]
+    pub default_skip_existing: bool,
+    #[serde(default = "default_true")]
+    pub default_write_manifest: bool,
+    #[serde(default)]
+    pub default_exclude_ext: String,
+    #[serde(default = "default_true")]
+    pub confirm_before_harvest: bool,
+    #[serde(default = "default_true")]
+    pub notify: bool,
+    #[serde(default)]
+    pub auto_eject: bool,
+    #[serde(default = "default_true")]
+    pub keep_awake: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            default_hash: default_hash(),
+            default_verify: true,
+            default_skip_existing: true,
+            default_write_manifest: true,
+            default_exclude_ext: String::new(),
+            confirm_before_harvest: true,
+            notify: true,
+            auto_eject: false,
+            keep_awake: true,
+        }
+    }
+}
+
+fn settings_path(app: &AppHandle) -> Option<PathBuf> {
+    let dir = app.path().app_config_dir().ok()?;
+    std::fs::create_dir_all(&dir).ok();
+    Some(dir.join("settings.json"))
+}
+fn read_settings(app: &AppHandle) -> Settings {
+    settings_path(app)
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+fn get_settings(app: AppHandle) -> Settings {
+    read_settings(&app)
+}
+
+#[tauri::command]
+fn save_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
+    let path = settings_path(&app).ok_or("no config dir")?;
+    let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
+    std::fs::write(path, json).map_err(|e| e.to_string())
 }
 
 fn build_config(req: CopyRequest) -> anyhow::Result<HarvestConfig> {
@@ -461,21 +530,26 @@ fn start_harvest(app: AppHandle, cancel: State<Cancel>, req: CopyRequest) -> Res
     let source = req.source.clone();
     let dests = req.dests.clone();
     let cfg = build_config(req).map_err(|e| format!("{e:#}"))?;
+    let settings = read_settings(&app);
 
     // Fresh cancel flag for this run.
     let flag = cancel.0.clone();
     flag.store(false, Ordering::Release);
 
     std::thread::spawn(move || {
-        // Keep the machine awake for the duration of the transfer (best-effort).
-        let _awake = keepawake::Builder::default()
-            .display(false)
-            .idle(true)
-            .sleep(true)
-            .reason("Harvesting media")
-            .app_name("Harvest")
-            .create()
-            .ok();
+        // Keep the machine awake for the transfer (best-effort), if enabled.
+        let _awake = if settings.keep_awake {
+            keepawake::Builder::default()
+                .display(false)
+                .idle(true)
+                .sleep(true)
+                .reason("Harvesting media")
+                .app_name("Harvest")
+                .create()
+                .ok()
+        } else {
+            None
+        };
 
         let emitter = app.clone();
         let last = std::sync::Mutex::new(std::time::Instant::now());
@@ -514,14 +588,25 @@ fn start_harvest(app: AppHandle, cancel: State<Cancel>, req: CopyRequest) -> Res
                         cancelled: outcome.cancelled,
                     },
                 );
-                let body = if outcome.cancelled {
-                    format!("Cancelled — {} files copied", outcome.copied)
-                } else if outcome.success() {
-                    format!("{} copied, {} already present", outcome.copied, outcome.skipped)
-                } else {
-                    format!("Finished with {} problem(s)", outcome.errors.len() + outcome.verify_failures.len())
-                };
-                let _ = app.notification().builder().title("Harvest").body(body).show();
+                // Auto-eject the source if it's a removable drive and enabled.
+                let ejected = outcome.success()
+                    && settings.auto_eject
+                    && drive_space(&source).2
+                    && eject_drive(source.clone()).is_ok();
+                if settings.notify {
+                    let body = if outcome.cancelled {
+                        format!("Cancelled — {} files copied", outcome.copied)
+                    } else if outcome.success() {
+                        let mut b = format!("{} copied, {} already present", outcome.copied, outcome.skipped);
+                        if ejected {
+                            b.push_str(" · source ejected");
+                        }
+                        b
+                    } else {
+                        format!("Finished with {} problem(s)", outcome.errors.len() + outcome.verify_failures.len())
+                    };
+                    let _ = app.notification().builder().title("Harvest").body(body).show();
+                }
                 let _ = app.emit(
                     "harvest:done",
                     DonePayload {
@@ -534,6 +619,7 @@ fn start_harvest(app: AppHandle, cancel: State<Cancel>, req: CopyRequest) -> Res
                         manifest_path: outcome.manifest_path.map(|p| p.display().to_string()),
                         journal_path: outcome.journal_path.display().to_string(),
                         cancelled: outcome.cancelled,
+                        ejected,
                     },
                 );
             }
@@ -598,6 +684,7 @@ fn verify_harvest(app: AppHandle, cancel: State<Cancel>, req: CopyRequest) -> Re
                         manifest_path: None,
                         journal_path: String::new(),
                         cancelled: o.cancelled,
+                        ejected: false,
                     },
                 );
             }
@@ -668,6 +755,8 @@ pub fn run() {
             cancel_harvest,
             list_history,
             clear_history,
+            get_settings,
+            save_settings,
             list_presets,
             save_preset,
             delete_preset
