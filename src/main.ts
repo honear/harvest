@@ -456,38 +456,7 @@ function filterExcludes(e: DirEntry): boolean {
   return false;
 }
 
-const CAT_COLORS = ["#3b9eff", "#11ff99", "#ff801f", "#ffc53d"];
-
-/// Build a grayscale nested mini-treemap of a folder's immediate children, with
-/// labels on cells big enough. Color is reserved for top-level files, so the
-/// layer is desaturated — it shows structure, not type, inside folders.
-function buildNested(children: { name: string; size: number; cat: number }[], w: number, h: number): HTMLElement | null {
-  if (!children || children.length === 0 || w < 10 || h < 10) return null;
-  const total = children.reduce((a, c) => a + c.size, 0);
-  if (total <= 0) return null;
-  const layer = document.createElement("div");
-  layer.className = "tile-nested";
-  const area = w * h;
-  const items = children.filter((c) => c.size > 0).map((c) => ({ area: (c.size / total) * area, e: c }));
-  const placed = squarify(items, { x: 0, y: 0, w, h });
-  for (const p of placed) {
-    const cell = document.createElement("div");
-    cell.className = "ncell";
-    cell.style.left = `${p.x}px`;
-    cell.style.top = `${p.y}px`;
-    cell.style.width = `${Math.max(0, p.w)}px`;
-    cell.style.height = `${Math.max(0, p.h)}px`;
-    cell.style.background = CAT_COLORS[p.e.cat] ?? CAT_COLORS[3];
-    if (p.w > 46 && p.h > 20) {
-      const lbl = document.createElement("span");
-      lbl.className = "nlabel";
-      lbl.textContent = p.e.name;
-      cell.appendChild(lbl);
-    }
-    layer.appendChild(cell);
-  }
-  return layer;
-}
+const FOLDER_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M3 7.5a2 2 0 0 1 2-2h3.4a2 2 0 0 1 1.4.6l.9.9a2 2 0 0 0 1.4.6H19a2 2 0 0 1 2 2v6.9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5z"/></svg>`;
 
 function extColor(ext: string): string {
   const video = ["mov", "mp4", "mxf", "avi", "mts", "m4v", "braw", "r3d", "mkv", "wmv"];
@@ -559,10 +528,11 @@ function renderList(tm: HTMLElement, entries: DirEntry[]) {
     const dot = e.isDir
       ? `<span class="srow-dot dir">▸</span>`
       : `<span class="srow-dot" style="background:${extColor(e.ext)}"></span>`;
+    const barColor = e.isDir ? "var(--mute)" : extColor(e.ext);
     row.innerHTML =
-      `<div class="srow-bar" style="width:${pct.toFixed(1)}%;background:${e.isDir ? "var(--mute)" : extColor(e.ext)}"></div>` +
       dot +
       `<span class="srow-name">${e.name}${e.isDir ? "/" : ""}</span>` +
+      `<span class="srow-bar"><span class="srow-barfill" style="width:${pct.toFixed(1)}%;background:${barColor}"></span></span>` +
       `<span class="srow-size">${humanBytes(e.size)}</span>` +
       `<span class="srow-pct">${pct.toFixed(0)}%</span>`;
     row.title = `${e.path}${filtered ? " · excluded by Options filter" : ""}`;
@@ -618,15 +588,17 @@ function renderTreemap() {
     if (p.w < 32 || p.h < 18) div.classList.add("tiny");
     div.style.left = `${p.x}px`;
     div.style.top = `${p.y}px`;
-    div.style.width = `${Math.max(0, p.w - 2)}px`;
-    div.style.height = `${Math.max(0, p.h - 2)}px`;
-    // Folders get the frosted side-panel surface (via .tile.dir) + a centered
-    // folder icon; files are solid type-color.
+    div.style.width = `${Math.max(0, p.w - 1)}px`;
+    div.style.height = `${Math.max(0, p.h - 1)}px`;
+    // Folders get a darker frosted-glass surface + a centered folder icon;
+    // files are solid type-color.
     if (!e.isDir) div.style.background = extColor(e.ext);
     div.innerHTML = `<div class="tile-name">${e.name}${e.isDir ? "/" : ""}</div><div class="tile-size">${humanBytes(e.size)}</div>`;
     if (e.isDir) {
-      const layer = buildNested(e.children, Math.max(0, p.w - 2), Math.max(0, p.h - 2));
-      if (layer) div.appendChild(layer);
+      const ic = document.createElement("div");
+      ic.className = "tile-folder-icon";
+      ic.innerHTML = FOLDER_ICON;
+      div.appendChild(ic);
     }
     const why = filtered ? " · excluded by Options filter" : e.isDir ? " · click to open" : survey ? "" : " · click to exclude";
     div.title = `${e.path}\n${humanBytes(e.size)}${why}`;
