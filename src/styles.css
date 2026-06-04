@@ -938,18 +938,31 @@ button:disabled {
   outline: 2px solid var(--ink);
   z-index: 2;
 }
-/* folder tiles: blurred, fully-desaturated mini-treemap of their contents */
-.tile-preview {
+/* folder tiles: frosted translucent surface (like the side panels) + icon */
+.tile.dir {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--hairline-strong);
+  backdrop-filter: blur(3px);
+}
+.tile-folder-icon {
   position: absolute;
   inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink);
+  opacity: 0.32;
   z-index: 0;
-  filter: blur(11px) grayscale(1) brightness(1.05);
-  opacity: 0.5;
   pointer-events: none;
 }
-.tile-preview > i {
-  position: absolute;
-  display: block;
+.tile-folder-icon svg {
+  width: 42%;
+  height: 42%;
+  max-width: 56px;
+  max-height: 56px;
+}
+.tile.tiny .tile-folder-icon {
+  display: none;
 }
 .tile .tile-name,
 .tile .tile-size {
