@@ -496,7 +496,7 @@ function renderCrumbs() {
 }
 
 /// Extension breakdown for the current folder (top types by size) — WizTree's
-/// file-type panel, compact.
+/// file-type panel. Click a chip to exclude/include that format (Sow mode).
 function renderExts() {
   const el = $("sow-legend");
   const exts = sowListing?.exts ?? [];
@@ -504,12 +504,31 @@ function renderExts() {
     el.innerHTML = "";
     return;
   }
+  const excluded = new Set(extList(val("exclude-ext")));
+  const clickable = sowMode === "sow";
   el.innerHTML = exts
     .map((e) => {
       const label = e.ext ? `.${e.ext}` : "no ext";
-      return `<span title="${e.files.toLocaleString()} files"><i style="background:${extColor(e.ext)}"></i><b>${label}</b> ${humanBytes(e.bytes)}</span>`;
+      const off = e.ext && excluded.has(e.ext.toLowerCase());
+      const attrs = clickable && e.ext
+        ? ` class="ext-chip${off ? " off" : ""}" data-ext="${e.ext}" role="button" tabindex="0" title="${off ? "Include" : "Exclude"} .${e.ext} (${e.files.toLocaleString()} files)"`
+        : ` title="${e.files.toLocaleString()} files"`;
+      return `<span${attrs}><i style="background:${extColor(e.ext)}"></i><b>${label}</b> ${humanBytes(e.bytes)}</span>`;
     })
     .join("");
+}
+
+/// Toggle an extension in the Options exclude-ext list (from the chip panel).
+function toggleExcludeExt(ext: string) {
+  if (!ext) return;
+  const cur = extList(val("exclude-ext"));
+  const e = ext.toLowerCase();
+  const i = cur.indexOf(e);
+  if (i >= 0) cur.splice(i, 1);
+  else cur.push(e);
+  setVal("exclude-ext", cur.join(","));
+  renderTreemap();
+  scheduleSowSize();
 }
 
 /// WizTree-style list view: rows sorted by size with a %-of-parent bar and a
@@ -1264,6 +1283,11 @@ window.addEventListener("DOMContentLoaded", async () => {
     $("sow-layout").textContent = sowLayout === "grid" ? "List" : "Grid";
     renderTreemap();
   };
+  // Click a file-type chip to exclude/include that format.
+  $("sow-legend").addEventListener("click", (e) => {
+    const chip = (e.target as HTMLElement).closest("[data-ext]") as HTMLElement | null;
+    if (chip) toggleExcludeExt(chip.dataset.ext || "");
+  });
   window.addEventListener("resize", () => {
     if (!($("sow-view") as HTMLElement).hidden && sowListing) renderTreemap();
   });

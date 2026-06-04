@@ -1096,6 +1096,24 @@ button:disabled {
   color: var(--ink);
   font-weight: 600;
 }
+.sow-legend .ext-chip {
+  cursor: pointer;
+  padding: 2px 7px;
+  border-radius: var(--pill);
+  border: 1px solid transparent;
+  transition: border-color 0.12s, background 0.12s, opacity 0.12s;
+}
+.sow-legend .ext-chip:hover {
+  border-color: var(--hairline-strong);
+  background: rgba(255, 255, 255, 0.05);
+}
+.sow-legend .ext-chip.off {
+  opacity: 0.45;
+}
+.sow-legend .ext-chip.off b {
+  text-decoration: line-through;
+  text-decoration-color: var(--danger);
+}
 .tile .tile-name {
   font-size: 11px;
   font-weight: 600;
