@@ -841,6 +841,21 @@ button:disabled {
   color: var(--danger);
   pointer-events: none;
 }
+/* excluded by an Options filter (extension / size / date), not manually */
+.tile.filtered {
+  opacity: 0.4;
+  outline: 2px dashed var(--survey);
+}
+.tile.filtered::after {
+  content: "filtered";
+  position: absolute;
+  bottom: 4px;
+  left: 7px;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--survey);
+  pointer-events: none;
+}
 .tile.tiny {
   padding: 0;
 }

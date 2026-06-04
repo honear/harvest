@@ -157,6 +157,8 @@ struct DirEntry {
     size: u64,
     is_dir: bool,
     ext: String,
+    /// Modification time in milliseconds since the Unix epoch (for date filters).
+    mtime_ms: i64,
 }
 
 #[derive(Serialize, Clone)]
@@ -185,6 +187,7 @@ async fn scan_dir(path: String) -> Result<DirListing, String> {
         for e in read.flatten() {
             let p = e.path();
             let Ok(md) = e.metadata() else { continue };
+            let mtime_ms = (harvest_core::mtime_ns(&md) / 1_000_000) as i64;
             if md.is_dir() {
                 let size = dir_size(&p);
                 total += size;
@@ -194,6 +197,7 @@ async fn scan_dir(path: String) -> Result<DirListing, String> {
                     size,
                     is_dir: true,
                     ext: String::new(),
+                    mtime_ms,
                 });
             } else if md.is_file() {
                 total += md.len();
@@ -207,6 +211,7 @@ async fn scan_dir(path: String) -> Result<DirListing, String> {
                     size: md.len(),
                     is_dir: false,
                     ext,
+                    mtime_ms,
                 });
             }
         }

@@ -18,6 +18,7 @@ interface DirEntry {
   size: number;
   isDir: boolean;
   ext: string;
+  mtimeMs: number;
 }
 interface DirListing {
   path: string;
@@ -316,6 +317,48 @@ function squarify(items: { area: number; e: DirEntry }[], rect: Rect): Placed[] 
   return out;
 }
 
+// Mirror the core size parser (binary units) for live treemap filtering.
+function parseSizeBytes(s: string): number | null {
+  s = s.trim();
+  if (!s) return null;
+  const m = s.match(/^([\d.]+)\s*([a-zA-Z]*)$/);
+  if (!m) return null;
+  const n = parseFloat(m[1]);
+  const mult: Record<string, number> = {
+    "": 1, b: 1, k: 1024, kb: 1024, m: 1024 ** 2, mb: 1024 ** 2,
+    g: 1024 ** 3, gb: 1024 ** 3, t: 1024 ** 4, tb: 1024 ** 4,
+  };
+  const f = mult[m[2].toLowerCase()];
+  return f ? n * f : null;
+}
+function parseDateMs(s: string): number | null {
+  const m = s.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  return Date.UTC(+m[1], +m[2] - 1, +m[3]);
+}
+function extList(s: string): string[] {
+  return s.split(",").map((e) => e.trim().replace(/^\./, "").toLowerCase()).filter(Boolean);
+}
+
+/// True if the current Options filters would drop this file (not for dirs).
+function filterExcludes(e: DirEntry): boolean {
+  if (e.isDir) return false;
+  const ext = e.ext.toLowerCase();
+  const inc = extList(val("include-ext"));
+  const exc = extList(val("exclude-ext"));
+  if (exc.includes(ext)) return true;
+  if (inc.length && !inc.includes(ext)) return true;
+  const min = parseSizeBytes(val("min-size"));
+  if (min != null && e.size < min) return true;
+  const max = parseSizeBytes(val("max-size"));
+  if (max != null && e.size > max) return true;
+  const after = parseDateMs(val("newer-than"));
+  if (after != null && e.mtimeMs < after) return true;
+  const before = parseDateMs(val("older-than"));
+  if (before != null && e.mtimeMs >= before) return true;
+  return false;
+}
+
 function extColor(ext: string): string {
   const video = ["mov", "mp4", "mxf", "avi", "mts", "m4v", "braw", "r3d", "mkv", "wmv"];
   const audio = ["wav", "aif", "aiff", "mp3", "flac", "m4a", "aac"];
@@ -362,9 +405,12 @@ function renderLegend() {
     ["Other", "#ffc53d"],
     ["Folder", "var(--surface-elevated)"],
   ];
-  el.innerHTML = items
-    .map(([l, c]) => `<span><i style="background:${c}"></i>${l}</span>`)
-    .join("");
+  let html = items.map(([l, c]) => `<span><i style="background:${c}"></i>${l}</span>`).join("");
+  if (sowMode === "sow") {
+    html += `<span><i style="background:var(--danger)"></i>Excluded</span>`;
+    html += `<span><i style="background:var(--survey);opacity:.5"></i>Filtered (Options)</span>`;
+  }
+  el.innerHTML = html;
 }
 
 function renderTreemap() {
@@ -382,29 +428,34 @@ function renderTreemap() {
   const area = W * H;
   const items = entries.map((e) => ({ area: (e.size / total) * area, e }));
   const placed = squarify(items, { x: 0, y: 0, w: W, h: H });
+  const survey = sowMode === "survey";
   for (const p of placed) {
     const e = p.e;
+    const manual = isExcluded(e.path);
+    const filtered = !manual && !survey && filterExcludes(e);
     const div = document.createElement("div");
-    div.className = "tile" + (e.isDir ? " dir" : "") + (isExcluded(e.path) ? " excluded" : "");
+    div.className =
+      "tile" + (e.isDir ? " dir" : "") + (manual ? " excluded" : "") + (filtered ? " filtered" : "");
     if (p.w < 32 || p.h < 18) div.classList.add("tiny");
     div.style.left = `${p.x}px`;
     div.style.top = `${p.y}px`;
     div.style.width = `${Math.max(0, p.w - 2)}px`;
     div.style.height = `${Math.max(0, p.h - 2)}px`;
     div.style.background = e.isDir ? "var(--surface-elevated)" : extColor(e.ext);
-    const survey = sowMode === "survey";
     div.innerHTML = `<div class="tile-name">${e.name}${e.isDir ? "/" : ""}</div><div class="tile-size">${humanBytes(e.size)}</div>`;
-    div.title = `${e.path}\n${humanBytes(e.size)}${e.isDir ? " · click to open" : survey ? "" : " · click to exclude"}`;
+    const why = filtered ? " · excluded by Options filter" : e.isDir ? " · click to open" : survey ? "" : " · click to exclude";
+    div.title = `${e.path}\n${humanBytes(e.size)}${why}`;
     div.onclick = () => {
       if (e.isDir) sowOpen(e.path);
-      else if (!survey) toggleExclude(e.path);
+      else if (!survey && !filtered) toggleExclude(e.path);
     };
-    // exclude/include corner button — only when building a transfer (Sow mode)
-    if (!survey) {
+    // manual exclude/include corner button — only for files not already
+    // dropped by a filter, when building a transfer (Sow mode).
+    if (!survey && !filtered) {
       const x = document.createElement("button");
       x.className = "tile-x";
-      x.textContent = isExcluded(e.path) ? "+" : "✕";
-      x.title = isExcluded(e.path) ? "Include in transfer" : "Exclude from transfer";
+      x.textContent = manual ? "+" : "✕";
+      x.title = manual ? "Include in transfer" : "Exclude from transfer";
       x.onclick = (ev) => {
         ev.stopPropagation();
         toggleExclude(e.path);
@@ -935,8 +986,18 @@ window.addEventListener("DOMContentLoaded", async () => {
   window.addEventListener("resize", () => {
     if (!($("sow-view") as HTMLElement).hidden && sowListing) renderTreemap();
   });
+  const reRenderIfSow = () => {
+    if (!($("sow-view") as HTMLElement).hidden && sowListing) renderTreemap();
+  };
   $("open-options").onclick = () => toggleOverlay("options-overlay", true);
-  $("close-options").onclick = () => toggleOverlay("options-overlay", false);
+  $("close-options").onclick = () => {
+    toggleOverlay("options-overlay", false);
+    reRenderIfSow();
+  };
+  // Live-update the Sow treemap as Options filters change.
+  for (const id of ["include-ext", "exclude-ext", "min-size", "max-size", "newer-than", "older-than"]) {
+    $(id).addEventListener("input", reRenderIfSow);
+  }
   $("close-result").onclick = () => toggleOverlay("result-overlay", false);
   $("close-about").onclick = () => toggleOverlay("about-overlay", false);
   $("close-history").onclick = () => toggleOverlay("history-overlay", false);
