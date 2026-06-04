@@ -166,7 +166,7 @@ function renderColumn(role: "source" | "dest") {
     li.className = "drop-add-big";
     li.setAttribute("role", "button");
     li.tabIndex = 0;
-    li.innerHTML = `<div class="plus">+</div><div class="label">Add a ${
+    li.innerHTML = `<div class="plus"><svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><path d="M13 4.5 V21.5 M4.5 13 H21.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></div><div class="label">Add a ${
       role === "source" ? "source" : "destination"
     }</div>`;
     const act = () => pickAndAdd(role);
@@ -612,6 +612,7 @@ function updateProgress(done: number, total: number, current: string) {
 function refreshActionState() {
   const ready = sources.length > 0 && destinations.length > 0 && !running;
   ($("start") as HTMLButtonElement).disabled = !ready;
+  ($("sow-btn") as HTMLButtonElement).disabled = sources.length === 0 || running;
   ($("cancel") as HTMLElement).hidden = !running;
   ($("start") as HTMLElement).hidden = running;
 }
