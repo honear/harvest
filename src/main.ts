@@ -30,11 +30,13 @@ interface DirEntry {
   isDir: boolean;
   ext: string;
   mtimeMs: number;
+  children: { name: string; size: number; cat: number }[];
 }
 interface DirListing {
   path: string;
   total: number;
   entries: DirEntry[];
+  exts: { ext: string; bytes: number; files: number }[];
 }
 interface PlanResult {
   total: number;
@@ -454,7 +456,38 @@ function filterExcludes(e: DirEntry): boolean {
   return false;
 }
 
-const FOLDER_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M3 7.5a2 2 0 0 1 2-2h3.4a2 2 0 0 1 1.4.6l.9.9a2 2 0 0 0 1.4.6H19a2 2 0 0 1 2 2v6.9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5z"/></svg>`;
+const CAT_COLORS = ["#3b9eff", "#11ff99", "#ff801f", "#ffc53d"];
+
+/// Build a grayscale nested mini-treemap of a folder's immediate children, with
+/// labels on cells big enough. Color is reserved for top-level files, so the
+/// layer is desaturated — it shows structure, not type, inside folders.
+function buildNested(children: { name: string; size: number; cat: number }[], w: number, h: number): HTMLElement | null {
+  if (!children || children.length === 0 || w < 10 || h < 10) return null;
+  const total = children.reduce((a, c) => a + c.size, 0);
+  if (total <= 0) return null;
+  const layer = document.createElement("div");
+  layer.className = "tile-nested";
+  const area = w * h;
+  const items = children.filter((c) => c.size > 0).map((c) => ({ area: (c.size / total) * area, e: c }));
+  const placed = squarify(items, { x: 0, y: 0, w, h });
+  for (const p of placed) {
+    const cell = document.createElement("div");
+    cell.className = "ncell";
+    cell.style.left = `${p.x}px`;
+    cell.style.top = `${p.y}px`;
+    cell.style.width = `${Math.max(0, p.w)}px`;
+    cell.style.height = `${Math.max(0, p.h)}px`;
+    cell.style.background = CAT_COLORS[p.e.cat] ?? CAT_COLORS[3];
+    if (p.w > 46 && p.h > 20) {
+      const lbl = document.createElement("span");
+      lbl.className = "nlabel";
+      lbl.textContent = p.e.name;
+      cell.appendChild(lbl);
+    }
+    layer.appendChild(cell);
+  }
+  return layer;
+}
 
 function extColor(ext: string): string {
   const video = ["mov", "mp4", "mxf", "avi", "mts", "m4v", "braw", "r3d", "mkv", "wmv"];
@@ -493,21 +526,21 @@ function renderCrumbs() {
   }
 }
 
-function renderLegend() {
+/// Extension breakdown for the current folder (top types by size) — WizTree's
+/// file-type panel, compact.
+function renderExts() {
   const el = $("sow-legend");
-  const items: [string, string][] = [
-    ["Video", "#3b9eff"],
-    ["Audio", "#11ff99"],
-    ["Image/RAW", "#ff801f"],
-    ["Other", "#ffc53d"],
-    ["Folder", "var(--surface-elevated)"],
-  ];
-  let html = items.map(([l, c]) => `<span><i style="background:${c}"></i>${l}</span>`).join("");
-  if (sowMode === "sow") {
-    html += `<span><i style="background:var(--danger)"></i>Excluded</span>`;
-    html += `<span><i style="background:var(--survey);opacity:.5"></i>Filtered (Options)</span>`;
+  const exts = sowListing?.exts ?? [];
+  if (!exts.length) {
+    el.innerHTML = "";
+    return;
   }
-  el.innerHTML = html;
+  el.innerHTML = exts
+    .map((e) => {
+      const label = e.ext ? `.${e.ext}` : "no ext";
+      return `<span title="${e.files.toLocaleString()} files"><i style="background:${extColor(e.ext)}"></i><b>${label}</b> ${humanBytes(e.bytes)}</span>`;
+    })
+    .join("");
 }
 
 /// WizTree-style list view: rows sorted by size with a %-of-parent bar and a
@@ -559,17 +592,15 @@ function renderTreemap() {
   tm.innerHTML = "";
   if (!sowListing) return;
   const entries = sowListing.entries.filter((e) => e.size > 0);
+  renderExts();
   if (entries.length === 0) {
     tm.innerHTML = '<div class="sow-hint">This folder is empty.</div>';
-    ($("sow-legend") as HTMLElement).style.display = "none";
     return;
   }
   if (sowLayout === "list") {
-    ($("sow-legend") as HTMLElement).style.display = "none";
     renderList(tm, entries);
     return;
   }
-  ($("sow-legend") as HTMLElement).style.display = "";
   const W = tm.clientWidth || 600;
   const H = tm.clientHeight || 360;
   const total = entries.reduce((s, e) => s + e.size, 0) || 1;
@@ -594,10 +625,8 @@ function renderTreemap() {
     if (!e.isDir) div.style.background = extColor(e.ext);
     div.innerHTML = `<div class="tile-name">${e.name}${e.isDir ? "/" : ""}</div><div class="tile-size">${humanBytes(e.size)}</div>`;
     if (e.isDir) {
-      const ic = document.createElement("div");
-      ic.className = "tile-folder-icon";
-      ic.innerHTML = FOLDER_ICON;
-      div.appendChild(ic);
+      const layer = buildNested(e.children, Math.max(0, p.w - 2), Math.max(0, p.h - 2));
+      if (layer) div.appendChild(layer);
     }
     const why = filtered ? " · excluded by Options filter" : e.isDir ? " · click to open" : survey ? "" : " · click to exclude";
     div.title = `${e.path}\n${humanBytes(e.size)}${why}`;
@@ -621,7 +650,6 @@ function renderTreemap() {
     }
     tm.appendChild(div);
   }
-  renderLegend();
 }
 
 async function sowOpen(path: string) {

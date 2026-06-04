@@ -5,6 +5,7 @@
 //! progress to the front end as events. Presets are stored as JSON in the app
 //! config directory.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -164,8 +165,35 @@ async fn transfer_size(req: CopyRequest, cache: tauri::State<'_, ScanCache>) -> 
     Ok(result)
 }
 
-/// One immediate child of a folder, with its recursive total size — feeds the
-/// Sow treemap.
+/// File-type category index (0=video,1=audio,2=image,3=other).
+fn category(ext: &str) -> usize {
+    const VIDEO: &[&str] = &["mov", "mp4", "mxf", "avi", "mts", "m4v", "braw", "r3d", "mkv", "wmv"];
+    const AUDIO: &[&str] = &["wav", "aif", "aiff", "mp3", "flac", "m4a", "aac"];
+    const IMAGE: &[&str] = &[
+        "jpg", "jpeg", "png", "cr3", "cr2", "arw", "dng", "nef", "tif", "tiff", "heic", "raf", "gpr", "gif",
+    ];
+    if VIDEO.contains(&ext) {
+        0
+    } else if AUDIO.contains(&ext) {
+        1
+    } else if IMAGE.contains(&ext) {
+        2
+    } else {
+        3
+    }
+}
+
+/// One nested child of a folder (its own immediate child), for the in-tile
+/// mini-treemap labels.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct Child {
+    name: String,
+    size: u64,
+    cat: u8,
+}
+
+/// One immediate child of the scanned folder — feeds the Sow treemap/list.
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct DirEntry {
@@ -176,6 +204,18 @@ struct DirEntry {
     ext: String,
     /// Modification time in milliseconds since the Unix epoch (for date filters).
     mtime_ms: i64,
+    /// For folders: nested immediate children (size + type), largest first,
+    /// capped — used to draw labeled sub-rectangles inside the folder tile.
+    children: Vec<Child>,
+}
+
+/// Total bytes + file count for one extension, for the breakdown panel.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ExtStat {
+    ext: String,
+    bytes: u64,
+    files: u64,
 }
 
 #[derive(Serialize, Clone)]
@@ -184,55 +224,89 @@ struct DirListing {
     path: String,
     total: u64,
     entries: Vec<DirEntry>,
+    /// Extension breakdown across everything under `path`, largest first.
+    exts: Vec<ExtStat>,
 }
 
-/// Recursive total size of a directory.
-fn dir_size(p: &std::path::Path) -> u64 {
-    harvest_core::scan(p).map(|list| list.iter().map(|f| f.size).sum()).unwrap_or(0)
+#[derive(Default)]
+struct ImmAcc {
+    size: u64,
+    is_dir: bool,
+    ext: String,
+    mtime_ms: i64,
+    nested: HashMap<String, (u64, [u64; 4])>, // grandchild -> (bytes, cat bytes)
 }
 
-/// List a folder's immediate children, each with its total recursive size,
-/// largest first. Drives the treemap; drill down by calling again on a subdir.
+/// Scan a folder in a single recursive walk, deriving: immediate children with
+/// sizes, each folder's nested children (for labeled mini-treemaps), and the
+/// extension breakdown for the whole subtree. Drill by calling again on a child.
 #[tauri::command]
 async fn scan_dir(path: String) -> Result<DirListing, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let base = PathBuf::from(&path);
-        let mut entries: Vec<DirEntry> = Vec::new();
+        let list = harvest_core::scan(&base).map_err(|e| e.to_string())?;
         let mut total = 0u64;
-        let read = std::fs::read_dir(&base).map_err(|e| e.to_string())?;
-        for e in read.flatten() {
-            let p = e.path();
-            let Ok(md) = e.metadata() else { continue };
-            let mtime_ms = (harvest_core::mtime_ns(&md) / 1_000_000) as i64;
-            if md.is_dir() {
-                let size = dir_size(&p);
-                total += size;
-                entries.push(DirEntry {
-                    name: e.file_name().to_string_lossy().to_string(),
-                    path: p.display().to_string(),
-                    size,
-                    is_dir: true,
-                    ext: String::new(),
-                    mtime_ms,
-                });
-            } else if md.is_file() {
-                total += md.len();
-                let ext = p
-                    .extension()
-                    .map(|x| x.to_string_lossy().to_lowercase())
-                    .unwrap_or_default();
-                entries.push(DirEntry {
-                    name: e.file_name().to_string_lossy().to_string(),
-                    path: p.display().to_string(),
-                    size: md.len(),
-                    is_dir: false,
-                    ext,
-                    mtime_ms,
-                });
+        let mut imm: HashMap<String, ImmAcc> = HashMap::new();
+        let mut exts: HashMap<String, (u64, u64)> = HashMap::new();
+
+        for f in &list {
+            total += f.size;
+            let ext = f.rel.extension().map(|x| x.to_string_lossy().to_lowercase()).unwrap_or_default();
+            let cat = category(&ext);
+            let et = exts.entry(ext.clone()).or_insert((0, 0));
+            et.0 += f.size;
+            et.1 += 1;
+
+            let mut comps = f.rel.components();
+            let Some(c0) = comps.next() else { continue };
+            let name = c0.as_os_str().to_string_lossy().to_string();
+            let acc = imm.entry(name).or_default();
+            acc.size += f.size;
+            if let Some(c1) = comps.next() {
+                acc.is_dir = true;
+                let g = acc.nested.entry(c1.as_os_str().to_string_lossy().to_string()).or_insert((0, [0u64; 4]));
+                g.0 += f.size;
+                g.1[cat] += f.size;
+            } else {
+                acc.ext = ext;
+                acc.mtime_ms = (f.mtime_ns / 1_000_000) as i64;
             }
         }
+
+        let mut entries: Vec<DirEntry> = imm
+            .into_iter()
+            .map(|(name, acc)| {
+                let mut children: Vec<Child> = acc
+                    .nested
+                    .into_iter()
+                    .map(|(cn, (sz, cat))| {
+                        let dom = (0..4).max_by_key(|&i| cat[i]).unwrap_or(3) as u8;
+                        Child { name: cn, size: sz, cat: dom }
+                    })
+                    .collect();
+                children.sort_by(|a, b| b.size.cmp(&a.size));
+                children.truncate(24);
+                DirEntry {
+                    path: base.join(&name).display().to_string(),
+                    name,
+                    size: acc.size,
+                    is_dir: acc.is_dir,
+                    ext: acc.ext,
+                    mtime_ms: acc.mtime_ms,
+                    children,
+                }
+            })
+            .collect();
         entries.sort_by(|a, b| b.size.cmp(&a.size));
-        Ok(DirListing { path, total, entries })
+
+        let mut exts: Vec<ExtStat> = exts
+            .into_iter()
+            .map(|(ext, (bytes, files))| ExtStat { ext, bytes, files })
+            .collect();
+        exts.sort_by(|a, b| b.bytes.cmp(&a.bytes));
+        exts.truncate(14);
+
+        Ok(DirListing { path, total, entries, exts })
     })
     .await
     .map_err(|e| e.to_string())?

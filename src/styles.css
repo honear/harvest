@@ -1049,36 +1049,52 @@ button:disabled {
   outline: 2px solid var(--ink);
   z-index: 2;
 }
-/* folder tiles: frosted translucent surface (like the side panels) + icon */
+/* folder tiles: grayscale nested mini-treemap of contents, with labels */
 .tile.dir {
   background: rgba(255, 255, 255, 0.05);
   border-color: var(--hairline-strong);
-  backdrop-filter: blur(3px);
 }
-.tile-folder-icon {
+.tile-nested {
   position: absolute;
   inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--ink);
-  opacity: 0.32;
   z-index: 0;
+  filter: grayscale(1) brightness(0.95);
+  opacity: 0.55;
   pointer-events: none;
 }
-.tile-folder-icon svg {
-  width: 42%;
-  height: 42%;
-  max-width: 56px;
-  max-height: 56px;
+.tile-nested .ncell {
+  position: absolute;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
 }
-.tile.tiny .tile-folder-icon {
-  display: none;
+.tile-nested .nlabel {
+  position: absolute;
+  left: 4px;
+  top: 3px;
+  right: 3px;
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tile.dir .tile-name,
+.tile.dir .tile-size {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+}
+.tile.tiny .tile-nested {
+  filter: grayscale(1) brightness(0.85);
 }
 .tile .tile-name,
 .tile .tile-size {
   position: relative;
   z-index: 1;
+}
+/* extension breakdown chips reuse .sow-legend; bolded ext name */
+.sow-legend b {
+  color: var(--ink);
+  font-weight: 600;
 }
 .tile .tile-name {
   font-size: 11px;
