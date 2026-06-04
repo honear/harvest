@@ -834,11 +834,12 @@ button:disabled {
 .tile.excluded::after {
   content: "excluded";
   position: absolute;
-  top: 4px;
-  right: 6px;
+  bottom: 4px;
+  left: 7px;
   font-family: var(--mono);
   font-size: 9px;
   color: var(--danger);
+  pointer-events: none;
 }
 .tile.tiny {
   padding: 0;
@@ -852,6 +853,7 @@ button:disabled {
   position: absolute;
   top: 3px;
   right: 3px;
+  z-index: 3;
   padding: 0;
   width: 18px;
   height: 18px;
