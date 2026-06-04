@@ -10,8 +10,8 @@
 
   <body>
     <div class="app">
-      <!-- top bar -->
-      <header class="topbar">
+      <!-- top bar (also the window title bar — draggable) -->
+      <header class="topbar" data-tauri-drag-region>
         <div class="brand">
           <button id="menu-btn" class="ghost menu-btn" title="Menu" aria-label="Menu" aria-haspopup="menu">☰</button>
           <span class="leaf">🌱</span>
@@ -30,10 +30,21 @@
             <button data-act="about">About Harvest</button>
           </div>
         </div>
-        <div class="topbar-center" id="topbar-title">Transfers</div>
+        <div class="topbar-center" id="topbar-title" data-tauri-drag-region>Transfers</div>
         <div class="topbar-actions">
           <button id="save-transfer" class="ghost">Save Transfer</button>
           <button id="open-options" class="ghost">Options</button>
+          <div class="window-controls">
+            <button id="win-min" class="winbtn" title="Minimize" aria-label="Minimize">
+              <svg width="11" height="11" viewBox="0 0 11 11"><rect x="1.5" y="5" width="8" height="1" fill="currentColor"/></svg>
+            </button>
+            <button id="win-max" class="winbtn" title="Maximize" aria-label="Maximize">
+              <svg width="11" height="11" viewBox="0 0 11 11"><rect x="1.5" y="1.5" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+            </button>
+            <button id="win-close" class="winbtn close" title="Close" aria-label="Close">
+              <svg width="11" height="11" viewBox="0 0 11 11"><path d="M1.5 1.5 L9.5 9.5 M9.5 1.5 L1.5 9.5" stroke="currentColor" stroke-width="1.2"/></svg>
+            </button>
+          </div>
         </div>
       </header>
 

@@ -10,6 +10,7 @@ import "@fontsource/jetbrains-mono/700.css";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
 
@@ -1055,6 +1056,16 @@ async function openDestinationFolder() {
 // ---- wire up --------------------------------------------------------------
 
 window.addEventListener("DOMContentLoaded", async () => {
+  // Custom window controls (native chrome is disabled).
+  try {
+    const appWindow = getCurrentWindow();
+    $("win-min").onclick = () => appWindow.minimize();
+    $("win-max").onclick = () => appWindow.toggleMaximize();
+    $("win-close").onclick = () => appWindow.close();
+  } catch {
+    /* not in Tauri (browser preview) */
+  }
+
   // Show the real app version in the badge + About.
   try {
     const v = await getVersion();
