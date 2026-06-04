@@ -226,9 +226,9 @@ body {
   list-style: none;
   margin: 0;
   padding: var(--s3);
-  border: 1px dashed var(--hairline-strong);
+  border: 1px solid var(--hairline);
   border-radius: var(--r-lg);
-  background: rgba(255, 255, 255, 0.012);
+  background: rgba(255, 255, 255, 0.035);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -239,12 +239,58 @@ body {
   border-color: var(--mode-accent);
   box-shadow: inset 0 60px 80px -60px var(--mode-glow);
 }
-.drop-hint {
+/* empty-state: big clickable "+" to add a folder */
+.drop-add-big {
   margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s3);
+  color: var(--ash);
+  cursor: pointer;
+  padding: var(--s4);
+  border-radius: var(--r-lg);
+  transition: color 0.15s;
+}
+.drop-add-big .plus {
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 34px;
+  font-weight: 300;
+  color: var(--ink);
+  border: 1.5px dashed var(--hairline-strong);
+  border-radius: var(--pill);
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.drop-add-big:hover .plus {
+  border-color: var(--mode-accent);
+  color: var(--mode-accent);
+  background: rgba(255, 255, 255, 0.03);
+}
+.drop-add-big .label {
+  font-size: 12.5px;
   text-align: center;
+}
+/* trailing "+ add" tile when the list already has items */
+.drop-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  padding: var(--s2);
   font-size: 12.5px;
   color: var(--ash);
-  padding: 0 8px;
+  border: 1px dashed var(--hairline-strong);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.drop-add:hover {
+  color: var(--mode-accent);
+  border-color: var(--mode-accent);
 }
 .drop-item {
   display: flex;
@@ -293,8 +339,8 @@ body {
 /* center: dynamic panel (transfers / compare / sow / survey / progress) */
 .col-center {
   position: relative;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid var(--divider);
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid var(--hairline);
   border-radius: var(--r-lg);
   padding: var(--s5);
   overflow: hidden;
@@ -465,6 +511,14 @@ button.primary:hover:not(:disabled) {
   box-shadow: 0 0 48px -4px var(--harvest-glow);
   filter: brightness(1.06);
 }
+button.primary.sow {
+  background: var(--sow);
+  color: #1c0c00;
+  box-shadow: 0 0 36px -6px var(--sow-glow);
+}
+button.primary.sow:hover:not(:disabled) {
+  box-shadow: 0 0 48px -4px var(--sow-glow);
+}
 button.small {
   padding: 5px 12px;
   font-size: 12.5px;
@@ -491,6 +545,7 @@ button:disabled {
 .action-info {
   flex: 1;
   min-width: 0;
+  text-align: center;
 }
 .status {
   font-size: 13px;

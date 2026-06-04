@@ -12,7 +12,7 @@
     <div class="app">
       <!-- top bar (also the window title bar — draggable) -->
       <header class="topbar" data-tauri-drag-region>
-        <div class="brand">
+        <div class="brand" data-tauri-drag-region>
           <button id="menu-btn" class="ghost menu-btn" title="Menu" aria-label="Menu" aria-haspopup="menu">☰</button>
           <span class="leaf">🌱</span>
           <span class="name">Harvest</span>
@@ -31,7 +31,7 @@
           </div>
         </div>
         <div class="topbar-center" id="topbar-title" data-tauri-drag-region>Transfers</div>
-        <div class="topbar-actions">
+        <div class="topbar-actions" data-tauri-drag-region>
           <button id="save-transfer" class="ghost">Save Transfer</button>
           <button id="open-options" class="ghost">Options</button>
           <div class="window-controls">
@@ -54,8 +54,6 @@
           <h2>Sources</h2>
           <ul id="source-list" class="droplist" data-role="source"></ul>
           <div id="source-info" class="col-info"></div>
-          <button id="add-source" class="add-folder" title="Add a folder as source">Add folder</button>
-          <button id="sow-btn" class="add-folder" title="Visualize a source — explore and exclude files">Sow — explore files</button>
         </section>
 
         <section class="col col-center" id="center-panel">
@@ -76,12 +74,12 @@
           <h2>Destinations</h2>
           <ul id="dest-list" class="droplist" data-role="dest"></ul>
           <div id="dest-info" class="col-info"></div>
-          <button id="add-dest" class="add-folder" title="Add a folder as destination">Add folder</button>
         </section>
       </main>
 
       <!-- bottom action bar -->
       <footer class="actionbar">
+        <button id="sow-btn" class="primary sow" title="Visualize a source — explore and exclude files">Sow</button>
         <div class="action-info">
           <span id="status" class="status">Add a source and a destination to begin.</span>
           <div class="progress-track" id="progress-track" hidden>

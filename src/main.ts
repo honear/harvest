@@ -163,8 +163,20 @@ function renderColumn(role: "source" | "dest") {
   el.innerHTML = "";
   if (items.length === 0) {
     const li = document.createElement("li");
-    li.className = "drop-hint muted";
-    li.textContent = "Nothing here yet — add a folder below.";
+    li.className = "drop-add-big";
+    li.setAttribute("role", "button");
+    li.tabIndex = 0;
+    li.innerHTML = `<div class="plus">+</div><div class="label">Add a ${
+      role === "source" ? "source" : "destination"
+    }</div>`;
+    const act = () => pickAndAdd(role);
+    li.onclick = act;
+    li.onkeydown = (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        act();
+      }
+    };
     el.appendChild(li);
   } else {
     items.forEach((path, i) => {
@@ -199,8 +211,27 @@ function renderColumn(role: "source" | "dest") {
       li.append(info, rm);
       el.appendChild(li);
     });
+    const add = document.createElement("li");
+    add.className = "drop-add";
+    add.setAttribute("role", "button");
+    add.tabIndex = 0;
+    add.textContent = "+  Add folder";
+    const act = () => pickAndAdd(role);
+    add.onclick = act;
+    add.onkeydown = (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        act();
+      }
+    };
+    el.appendChild(add);
   }
   renderColumnInfo(role);
+}
+
+async function pickAndAdd(role: "source" | "dest") {
+  const f = await open({ directory: true, multiple: false });
+  if (typeof f === "string") addPath(role, f);
 }
 
 function renderColumnInfo(role: "source" | "dest") {
@@ -1088,14 +1119,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     $(id).addEventListener("change", saveSettings);
   }
 
-  $("add-source").onclick = async () => {
-    const f = await open({ directory: true, multiple: false });
-    if (typeof f === "string") addPath("source", f);
-  };
-  $("add-dest").onclick = async () => {
-    const f = await open({ directory: true, multiple: false });
-    if (typeof f === "string") addPath("dest", f);
-  };
   $("add-exclude-folder").onclick = async () => {
     const f = await open({ directory: true, multiple: false });
     if (typeof f === "string") addExclusion(f);
