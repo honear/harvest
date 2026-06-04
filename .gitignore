@@ -7,6 +7,9 @@
 /dist
 /src-tauri/gen/schemas
 
+# Regenerable icon source (run scripts/gen-icon.mjs)
+/icon-src.png
+
 # Editor / OS
 .DS_Store
 Thumbs.db

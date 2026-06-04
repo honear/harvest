@@ -27,6 +27,12 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "category": "Utility",
+    "copyright": "© 2026 Rolando",
+    "publisher": "Rolando",
+    "shortDescription": "Verified media ingest",
+    "longDescription": "Harvest copies footage and files from cards or folders to one or more destinations and verifies every byte — read once, write everywhere, prove it landed intact.",
+    "licenseFile": "../LICENSE",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

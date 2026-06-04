@@ -1,5 +1,15 @@
+// Self-hosted fonts (bundled into the app — no network needed at runtime).
+import "@fontsource/inter/400.css";
+import "@fontsource/inter/500.css";
+import "@fontsource/inter/600.css";
+import "@fontsource/inter/700.css";
+import "@fontsource/jetbrains-mono/400.css";
+import "@fontsource/jetbrains-mono/500.css";
+import "@fontsource/jetbrains-mono/700.css";
+
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getVersion } from "@tauri-apps/api/app";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
 
@@ -1041,6 +1051,15 @@ async function openDestinationFolder() {
 // ---- wire up --------------------------------------------------------------
 
 window.addEventListener("DOMContentLoaded", async () => {
+  // Show the real app version in the badge + About.
+  try {
+    const v = await getVersion();
+    $("badge").textContent = `v${v} · β`;
+    $("about-version").textContent = `Verified media ingest · v${v}`;
+  } catch {
+    /* not in Tauri (browser preview) */
+  }
+
   await loadSettings();
   applyDefaultsToOptions();
   renderColumn("source");

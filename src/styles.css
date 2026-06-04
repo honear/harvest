@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap");
+/* Fonts are bundled via @fontsource imports in main.ts (offline-safe). */
 
 /* Design language: Resend (DESIGN.md) layered on a dark base — pure-black
    canvas, surface luminance steps for elevation, translucent-white hairlines
