@@ -30,6 +30,92 @@ pub struct Filter {
     /// of these is a prefix of its absolute path. Populated from the UI's
     /// exclusion list / the Sow visualizer.
     pub exclude_paths: Vec<PathBuf>,
+    /// If set, keep only files whose OS owner matches this account name.
+    /// Reliable on NTFS/APFS; on FAT/exFAT (no ownership) nothing matches.
+    pub owner: Option<String>,
+}
+
+/// Best-effort OS owner (account name) of a file. `None` if unavailable
+/// (e.g. FAT/exFAT volumes with no ownership).
+#[cfg(unix)]
+pub fn file_owner_name(path: &Path) -> Option<String> {
+    use file_owner::PathExt;
+    path.owner().ok().and_then(|o| o.name().map(|s| s.to_string()))
+}
+
+#[cfg(windows)]
+pub fn file_owner_name(path: &Path) -> Option<String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::{LocalFree, ERROR_SUCCESS};
+    use windows_sys::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
+    use windows_sys::Win32::Security::{
+        LookupAccountSidW, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, SID_NAME_USE,
+    };
+
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    unsafe {
+        let mut psid: PSID = std::ptr::null_mut();
+        let mut psd: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+        let rc = GetNamedSecurityInfoW(
+            wide.as_ptr(),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            &mut psid,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut psd,
+        );
+        if rc != ERROR_SUCCESS {
+            return None;
+        }
+        // First call sizes the name/domain buffers; second fills them.
+        let mut name_len: u32 = 0;
+        let mut dom_len: u32 = 0;
+        let mut sid_type: SID_NAME_USE = 0;
+        LookupAccountSidW(
+            std::ptr::null(),
+            psid,
+            std::ptr::null_mut(),
+            &mut name_len,
+            std::ptr::null_mut(),
+            &mut dom_len,
+            &mut sid_type,
+        );
+        let mut name = vec![0u16; name_len.max(1) as usize];
+        let mut dom = vec![0u16; dom_len.max(1) as usize];
+        let ok = LookupAccountSidW(
+            std::ptr::null(),
+            psid,
+            name.as_mut_ptr(),
+            &mut name_len,
+            dom.as_mut_ptr(),
+            &mut dom_len,
+            &mut sid_type,
+        );
+        let result = if ok != 0 {
+            Some(String::from_utf16_lossy(&name[..name_len as usize]))
+        } else {
+            None
+        };
+        if !psd.is_null() {
+            LocalFree(psd as _);
+        }
+        result
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+pub fn file_owner_name(_path: &Path) -> Option<String> {
+    None
+}
+
+/// Whether `owner` (raw OS owner string) belongs to account `want`. Lenient:
+/// matches "want", "MACHINE\\want", or "domain/want", case-insensitively.
+fn owner_matches(owner: &str, want: &str) -> bool {
+    let o = owner.to_lowercase();
+    let w = want.to_lowercase();
+    o == w || o.ends_with(&format!("\\{w}")) || o.ends_with(&format!("/{w}"))
 }
 
 impl Filter {
@@ -58,6 +144,7 @@ impl Filter {
             newer_than_ns: opt_str(newer_than).map(parse_date_ns).transpose()?,
             older_than_ns: opt_str(older_than).map(parse_date_ns).transpose()?,
             exclude_paths: Vec::new(),
+            owner: None,
         })
     }
 
@@ -70,6 +157,7 @@ impl Filter {
             && self.newer_than_ns.is_none()
             && self.older_than_ns.is_none()
             && self.exclude_paths.is_empty()
+            && self.owner.is_none()
     }
 
     /// Whether a file passes every active rule.
@@ -77,6 +165,12 @@ impl Filter {
         for ex in &self.exclude_paths {
             if f.abs.starts_with(ex) {
                 return false;
+            }
+        }
+        if let Some(want) = &self.owner {
+            match file_owner_name(&f.abs) {
+                Some(name) if owner_matches(&name, want) => {}
+                _ => return false,
             }
         }
         if let Some(min) = self.min_size {

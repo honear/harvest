@@ -1375,6 +1375,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "file-owner"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "36f03ecafcffaf8add486d5424ffd60a25690f9da6a026692bc6c657379fc60c"
+dependencies = [
+ "nix",
+]
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1852,12 +1861,14 @@ name = "harvest-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "file-owner",
  "md-5",
  "rayon",
  "serde",
  "serde_json",
  "time",
  "walkdir",
+ "windows-sys 0.59.0",
  "xxhash-rust",
 ]
 

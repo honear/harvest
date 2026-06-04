@@ -13,3 +13,14 @@ rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 time.workspace = true
+
+# File-owner lookup is platform-specific.
+[target.'cfg(unix)'.dependencies]
+file-owner = "0.1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+] }

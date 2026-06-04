@@ -77,6 +77,7 @@ interface Preset {
   newerThan?: string | null;
   olderThan?: string | null;
   excludePaths?: string[];
+  ownerOnly?: boolean;
   destTemplate?: string | null;
   project?: string | null;
   writeManifest: boolean;
@@ -558,6 +559,7 @@ function gatherCommon() {
     newerThan: orNull(val("newer-than")),
     olderThan: orNull(val("older-than")),
     excludePaths: [...excludePaths],
+    ownerOnly: checked("owner-only"),
     destTemplate: orNull(val("dest-template")),
     project: orNull(val("project")),
     writeManifest: checked("manifest"),
@@ -577,6 +579,7 @@ function applyOptions(p: Preset) {
   setVal("older-than", p.olderThan ?? "");
   setVal("dest-template", p.destTemplate ?? "");
   setVal("project", p.project ?? "");
+  setChecked("owner-only", !!p.ownerOnly);
   excludePaths = [...(p.excludePaths ?? [])];
   renderExclusions();
 }

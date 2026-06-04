@@ -104,8 +104,14 @@
               <label class="check"><input type="checkbox" id="skip-existing" checked /> Skip files already at destination</label>
               <label class="check"><input type="checkbox" id="resume" /> Resume interrupted transfer</label>
               <label class="check"><input type="checkbox" id="manifest" checked /> Write manifest</label>
+              <label class="check"><input type="checkbox" id="owner-only" /> Only files I own (this account)</label>
             </div>
           </div>
+          <p class="hint muted">
+            “Only files I own” keeps files owned by your OS account. Works on
+            internal drives (NTFS/APFS); SD/CF cards (exFAT/FAT) have no
+            ownership, so it will match nothing there.
+          </p>
 
           <h3>Filters</h3>
           <div class="grid">

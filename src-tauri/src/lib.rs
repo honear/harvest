@@ -240,9 +240,16 @@ pub struct CopyRequest {
     pub older_than: Option<String>,
     #[serde(default)]
     pub exclude_paths: Vec<String>,
+    #[serde(default)]
+    pub owner_only: bool,
     pub dest_template: Option<String>,
     pub project: Option<String>,
     pub write_manifest: bool,
+}
+
+/// The current OS account name (for the "only files I own" filter).
+fn current_user() -> Option<String> {
+    std::env::var("USERNAME").or_else(|_| std::env::var("USER")).ok().filter(|s| !s.is_empty())
 }
 
 #[derive(Serialize, Clone)]
@@ -323,6 +330,8 @@ pub struct Preset {
     #[serde(default)]
     pub exclude_paths: Vec<String>,
     #[serde(default)]
+    pub owner_only: bool,
+    #[serde(default)]
     pub dest_template: Option<String>,
     #[serde(default)]
     pub project: Option<String>,
@@ -346,6 +355,9 @@ fn build_config(req: CopyRequest) -> anyhow::Result<HarvestConfig> {
         req.older_than.as_deref(),
     )?;
     filter.exclude_paths = req.exclude_paths.iter().map(PathBuf::from).collect();
+    if req.owner_only {
+        filter.owner = current_user();
+    }
     Ok(HarvestConfig {
         source: PathBuf::from(req.source),
         dests: req.dests.into_iter().map(PathBuf::from).collect(),
