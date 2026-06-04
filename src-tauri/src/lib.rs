@@ -128,6 +128,28 @@ struct DirEntry {
     ext: String,
     /// Modification time in milliseconds since the Unix epoch (for date filters).
     mtime_ms: i64,
+    /// Bytes by file-type category [video, audio, image, other] — for folders,
+    /// a content-composition preview in the treemap.
+    comp: [u64; 4],
+}
+
+/// File-type category index used for the folder composition preview.
+fn category(ext: &str) -> usize {
+    const VIDEO: &[&str] = &["mov", "mp4", "mxf", "avi", "mts", "m4v", "braw", "r3d", "mkv", "wmv"];
+    const AUDIO: &[&str] = &["wav", "aif", "aiff", "mp3", "flac", "m4a", "aac"];
+    const IMAGE: &[&str] = &[
+        "jpg", "jpeg", "png", "cr3", "cr2", "arw", "dng", "nef", "tif", "tiff", "heic", "raf", "gpr", "gif",
+    ];
+    let e = ext.to_lowercase();
+    if VIDEO.contains(&e.as_str()) {
+        0
+    } else if AUDIO.contains(&e.as_str()) {
+        1
+    } else if IMAGE.contains(&e.as_str()) {
+        2
+    } else {
+        3
+    }
 }
 
 #[derive(Serialize, Clone)]
@@ -138,10 +160,18 @@ struct DirListing {
     entries: Vec<DirEntry>,
 }
 
-fn dir_size(p: &std::path::Path) -> u64 {
-    harvest_core::scan(p)
-        .map(|list| list.iter().map(|f| f.size).sum())
-        .unwrap_or(0)
+/// Recursive total size and content composition (bytes per category) of a dir.
+fn dir_stats(p: &std::path::Path) -> (u64, [u64; 4]) {
+    let mut total = 0u64;
+    let mut comp = [0u64; 4];
+    if let Ok(list) = harvest_core::scan(p) {
+        for f in &list {
+            total += f.size;
+            let ext = f.rel.extension().map(|x| x.to_string_lossy().to_lowercase()).unwrap_or_default();
+            comp[category(&ext)] += f.size;
+        }
+    }
+    (total, comp)
 }
 
 /// List a folder's immediate children, each with its total recursive size,
@@ -158,7 +188,7 @@ async fn scan_dir(path: String) -> Result<DirListing, String> {
             let Ok(md) = e.metadata() else { continue };
             let mtime_ms = (harvest_core::mtime_ns(&md) / 1_000_000) as i64;
             if md.is_dir() {
-                let size = dir_size(&p);
+                let (size, comp) = dir_stats(&p);
                 total += size;
                 entries.push(DirEntry {
                     name: e.file_name().to_string_lossy().to_string(),
@@ -167,6 +197,7 @@ async fn scan_dir(path: String) -> Result<DirListing, String> {
                     is_dir: true,
                     ext: String::new(),
                     mtime_ms,
+                    comp,
                 });
             } else if md.is_file() {
                 total += md.len();
@@ -174,6 +205,8 @@ async fn scan_dir(path: String) -> Result<DirListing, String> {
                     .extension()
                     .map(|x| x.to_string_lossy().to_lowercase())
                     .unwrap_or_default();
+                let mut comp = [0u64; 4];
+                comp[category(&ext)] = md.len();
                 entries.push(DirEntry {
                     name: e.file_name().to_string_lossy().to_string(),
                     path: p.display().to_string(),
@@ -181,6 +214,7 @@ async fn scan_dir(path: String) -> Result<DirListing, String> {
                     is_dir: false,
                     ext,
                     mtime_ms,
+                    comp,
                 });
             }
         }

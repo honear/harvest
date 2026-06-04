@@ -30,6 +30,7 @@ interface DirEntry {
   isDir: boolean;
   ext: string;
   mtimeMs: number;
+  comp: number[]; // bytes per [video, audio, image, other]
 }
 interface DirListing {
   path: string;
@@ -430,6 +431,25 @@ function filterExcludes(e: DirEntry): boolean {
   return false;
 }
 
+/// Build a weighted gradient from a folder's content composition (bytes per
+/// [video, audio, image, other]) for the blurred preview behind a folder tile.
+function compGradient(comp: number[]): string | null {
+  if (!comp || comp.length < 4) return null;
+  const colors = ["#3b9eff", "#11ff99", "#ff801f", "#ffc53d"];
+  const total = comp.reduce((a, b) => a + b, 0);
+  if (total <= 0) return null;
+  let acc = 0;
+  const stops: string[] = [];
+  for (let i = 0; i < 4; i++) {
+    if (comp[i] <= 0) continue;
+    const s = (acc / total) * 100;
+    acc += comp[i];
+    const e = (acc / total) * 100;
+    stops.push(`${colors[i]} ${s.toFixed(1)}% ${e.toFixed(1)}%`);
+  }
+  return `linear-gradient(135deg, ${stops.join(", ")})`;
+}
+
 function extColor(ext: string): string {
   const video = ["mov", "mp4", "mxf", "avi", "mts", "m4v", "braw", "r3d", "mkv", "wmv"];
   const audio = ["wav", "aif", "aiff", "mp3", "flac", "m4a", "aac"];
@@ -512,7 +532,16 @@ function renderTreemap() {
     div.style.top = `${p.y}px`;
     div.style.width = `${Math.max(0, p.w - 2)}px`;
     div.style.height = `${Math.max(0, p.h - 2)}px`;
-    div.style.background = e.isDir ? "var(--surface-elevated)" : extColor(e.ext);
+    if (e.isDir) {
+      div.style.background = "var(--surface-elevated)";
+      const g = compGradient(e.comp);
+      if (g) {
+        div.style.setProperty("--comp", g);
+        div.classList.add("has-comp");
+      }
+    } else {
+      div.style.background = extColor(e.ext);
+    }
     div.innerHTML = `<div class="tile-name">${e.name}${e.isDir ? "/" : ""}</div><div class="tile-size">${humanBytes(e.size)}</div>`;
     const why = filtered ? " · excluded by Options filter" : e.isDir ? " · click to open" : survey ? "" : " · click to exclude";
     div.title = `${e.path}\n${humanBytes(e.size)}${why}`;
@@ -562,8 +591,7 @@ function showCenter(mode: "transfers" | "options" | "sow" | "survey") {
   ($("transfer-list") as HTMLElement).hidden = mode !== "transfers";
   ($("options-view") as HTMLElement).hidden = mode !== "options";
   ($("sow-view") as HTMLElement).hidden = !(mode === "sow" || mode === "survey");
-  // header: Options/New only in the transfers view; Done in any sub-view
-  ($("open-options") as HTMLElement).hidden = mode !== "transfers";
+  // header: New only in the transfers view; Done in any sub-view
   ($("new-transfer") as HTMLElement).hidden = mode !== "transfers";
   ($("center-done") as HTMLElement).hidden = mode === "transfers";
 }
@@ -800,6 +828,14 @@ async function refreshTransfers() {
     loadBtn.className = "ghost small";
     loadBtn.textContent = "Load";
     loadBtn.onclick = () => loadTransfer(p);
+    const optBtn = document.createElement("button");
+    optBtn.className = "ghost small";
+    optBtn.textContent = "Options";
+    optBtn.title = "Edit this transfer's options";
+    optBtn.onclick = () => {
+      loadTransfer(p);
+      enterOptions();
+    };
     const delBtn = document.createElement("button");
     delBtn.className = "ghost small danger";
     delBtn.textContent = "Delete";
@@ -808,7 +844,7 @@ async function refreshTransfers() {
       await invoke("delete_preset", { name: p.name });
       await refreshTransfers();
     };
-    actions.append(runBtn, loadBtn, delBtn);
+    actions.append(runBtn, loadBtn, optBtn, delBtn);
     card.append(head, meta, actions);
     list.appendChild(card);
   }
@@ -1159,7 +1195,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("new-transfer").onclick = clearAll;
   $("sow-btn").onclick = enterSow;
   $("center-done").onclick = exitCenter;
-  $("open-options").onclick = enterOptions;
   window.addEventListener("resize", () => {
     if (!($("sow-view") as HTMLElement).hidden && sowListing) renderTreemap();
   });
