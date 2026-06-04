@@ -157,6 +157,7 @@ let sowSource = "";
 let sowPath = "";
 let sowListing: DirListing | null = null;
 let sowMode: "sow" | "survey" = "sow";
+let sowToken = 0;
 
 function renderColumn(role: "source" | "dest") {
   const items = role === "source" ? sources : destinations;
@@ -573,13 +574,19 @@ async function sowOpen(path: string) {
   sowPath = path;
   renderCrumbs();
   const tm = $("treemap");
-  tm.innerHTML = '<div class="sow-hint">Scanning…</div>';
+  // big folders take a while to walk — show an indeterminate loading bar
+  tm.innerHTML = `<div class="sow-loading"><div class="sow-loading-label">Scanning ${basename(path)}…</div><div class="loadbar"><div class="loadbar-fill"></div></div><div class="sow-loading-sub muted">Measuring sizes and contents</div></div>`;
+  const token = ++sowToken;
+  let listing: DirListing;
   try {
-    sowListing = await invoke<DirListing>("scan_dir", { path });
+    listing = await invoke<DirListing>("scan_dir", { path });
   } catch (e) {
-    tm.innerHTML = `<div class="sow-hint">Could not scan: ${e}</div>`;
+    if (token === sowToken) tm.innerHTML = `<div class="sow-hint">Could not scan: ${e}</div>`;
     return;
   }
+  // a newer scan started (user drilled again) — drop this stale result
+  if (token !== sowToken) return;
+  sowListing = listing;
   renderTreemap();
 }
 
