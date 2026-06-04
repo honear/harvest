@@ -116,6 +116,35 @@ async fn inspect_path(path: String) -> PathInfo {
     .unwrap_or(PathInfo { files: 0, bytes: 0, free_space: 0, drive_total: 0, removable: false })
 }
 
+/// Files + bytes that a transfer would include for one source, after all
+/// filters and exclusions — drives the live Sow readout.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct SizeInfo {
+    files: u64,
+    bytes: u64,
+}
+
+#[tauri::command]
+async fn transfer_size(req: CopyRequest) -> Result<SizeInfo, String> {
+    let cfg = build_config(req).map_err(|e| format!("{e:#}"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut files = 0u64;
+        let mut bytes = 0u64;
+        if let Ok(list) = harvest_core::scan(&cfg.source) {
+            for f in &list {
+                if cfg.filter.accepts(f) {
+                    files += 1;
+                    bytes += f.size;
+                }
+            }
+        }
+        SizeInfo { files, bytes }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 /// One immediate child of a folder, with its recursive total size — feeds the
 /// Sow treemap.
 #[derive(Serialize, Clone)]
@@ -724,6 +753,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             inspect_path,
             scan_dir,
+            transfer_size,
             plan_harvest,
             start_harvest,
             verify_harvest,

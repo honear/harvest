@@ -156,6 +156,7 @@ let sowSource = "";
 let sowPath = "";
 let sowListing: DirListing | null = null;
 let sowMode: "sow" | "survey" = "sow";
+let sowLayout: "grid" | "list" = "grid";
 let sowToken = 0;
 
 function renderColumn(role: "source" | "dest") {
@@ -321,6 +322,28 @@ function toggleExclude(path: string) {
   else excludePaths.push(path);
   renderExclusions();
   renderTreemap();
+  scheduleSowSize();
+}
+
+// Live "files · size" readout in the Sow header for the explored source.
+let sizeTimer: number | undefined;
+function updateSowSize() {
+  const meta = $("center-meta");
+  if (sowMode !== "sow" || ($("sow-view") as HTMLElement).hidden) {
+    meta.textContent = "";
+    return;
+  }
+  meta.textContent = "calculating…";
+  const req = { source: sowSource, dests: destinations, resume: false, ...gatherCommon() };
+  invoke<{ files: number; bytes: number }>("transfer_size", { req })
+    .then((r) => {
+      if (sowMode === "sow") meta.textContent = `${r.files.toLocaleString()} files · ${humanBytes(r.bytes)} selected`;
+    })
+    .catch(() => (meta.textContent = ""));
+}
+function scheduleSowSize() {
+  if (sizeTimer) clearTimeout(sizeTimer);
+  sizeTimer = window.setTimeout(updateSowSize, 350);
 }
 
 // ---- Sow visualizer (squarified treemap) ----------------------------------
@@ -487,17 +510,68 @@ function renderLegend() {
   el.innerHTML = html;
 }
 
+/// WizTree-style list view: rows sorted by size with a %-of-parent bar and a
+/// per-row include/exclude control. Folders drill in; files toggle exclusion.
+function renderList(tm: HTMLElement, entries: DirEntry[]) {
+  const total = entries.reduce((s, e) => s + e.size, 0) || 1;
+  const survey = sowMode === "survey";
+  const list = document.createElement("div");
+  list.className = "sow-list";
+  for (const e of entries) {
+    const manual = isExcluded(e.path);
+    const filtered = !manual && !survey && filterExcludes(e);
+    const pct = (e.size / total) * 100;
+    const row = document.createElement("div");
+    row.className = "srow" + (manual ? " excluded" : "") + (filtered ? " filtered" : "");
+    const dot = e.isDir
+      ? `<span class="srow-dot dir">▸</span>`
+      : `<span class="srow-dot" style="background:${extColor(e.ext)}"></span>`;
+    row.innerHTML =
+      `<div class="srow-bar" style="width:${pct.toFixed(1)}%;background:${e.isDir ? "var(--mute)" : extColor(e.ext)}"></div>` +
+      dot +
+      `<span class="srow-name">${e.name}${e.isDir ? "/" : ""}</span>` +
+      `<span class="srow-size">${humanBytes(e.size)}</span>` +
+      `<span class="srow-pct">${pct.toFixed(0)}%</span>`;
+    row.title = `${e.path}${filtered ? " · excluded by Options filter" : ""}`;
+    row.onclick = () => {
+      if (e.isDir) sowOpen(e.path);
+      else if (!survey && !filtered) toggleExclude(e.path);
+    };
+    if (!survey && !filtered) {
+      const x = document.createElement("button");
+      x.className = "srow-x";
+      x.textContent = manual ? "+" : "✕";
+      x.title = manual ? "Include in transfer" : "Exclude from transfer";
+      x.setAttribute("aria-label", `${manual ? "Include" : "Exclude"} ${e.name}`);
+      x.onclick = (ev) => {
+        ev.stopPropagation();
+        toggleExclude(e.path);
+      };
+      row.appendChild(x);
+    }
+    list.appendChild(row);
+  }
+  tm.appendChild(list);
+}
+
 function renderTreemap() {
   const tm = $("treemap");
   tm.innerHTML = "";
   if (!sowListing) return;
-  const W = tm.clientWidth || 600;
-  const H = tm.clientHeight || 360;
   const entries = sowListing.entries.filter((e) => e.size > 0);
   if (entries.length === 0) {
     tm.innerHTML = '<div class="sow-hint">This folder is empty.</div>';
+    ($("sow-legend") as HTMLElement).style.display = "none";
     return;
   }
+  if (sowLayout === "list") {
+    ($("sow-legend") as HTMLElement).style.display = "none";
+    renderList(tm, entries);
+    return;
+  }
+  ($("sow-legend") as HTMLElement).style.display = "";
+  const W = tm.clientWidth || 600;
+  const H = tm.clientHeight || 360;
   const total = entries.reduce((s, e) => s + e.size, 0) || 1;
   const area = W * H;
   const items = entries.map((e) => ({ area: (e.size / total) * area, e }));
@@ -579,6 +653,7 @@ function showCenter(mode: "transfers" | "options" | "sow" | "survey") {
   ($("transfer-list") as HTMLElement).hidden = mode !== "transfers";
   ($("options-view") as HTMLElement).hidden = mode !== "options";
   ($("sow-view") as HTMLElement).hidden = !(mode === "sow" || mode === "survey");
+  if (mode !== "sow") $("center-meta").textContent = "";
   // header: New only in the transfers view; Done in any sub-view
   ($("new-transfer") as HTMLElement).hidden = mode !== "transfers";
   ($("center-done") as HTMLElement).hidden = mode === "transfers";
@@ -609,6 +684,7 @@ function openVisualizer(root: string, mode: "sow" | "survey") {
       ? "Click folders to explore; click files (or ✕) to exclude them from the transfer."
       : "Surveying disk usage. Click folders to explore.",
   );
+  if (mode === "sow") updateSowSize();
   sowOpen(root);
 }
 
@@ -1183,6 +1259,11 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("new-transfer").onclick = clearAll;
   $("sow-btn").onclick = enterSow;
   $("center-done").onclick = exitCenter;
+  $("sow-layout").onclick = () => {
+    sowLayout = sowLayout === "grid" ? "list" : "grid";
+    $("sow-layout").textContent = sowLayout === "grid" ? "List" : "Grid";
+    renderTreemap();
+  };
   window.addEventListener("resize", () => {
     if (!($("sow-view") as HTMLElement).hidden && sowListing) renderTreemap();
   });

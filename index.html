@@ -58,6 +58,7 @@
         <section class="col col-center" id="center-panel">
           <div class="center-head">
             <h2 id="center-title">Saved Transfers</h2>
+            <span id="center-meta" class="center-meta muted"></span>
             <div class="center-head-actions">
               <button id="new-transfer" class="ghost small" title="Clear the current selection">New</button>
               <button id="center-done" class="ghost small" hidden>Done</button>
@@ -119,7 +120,10 @@
           </div>
 
           <div id="sow-view" class="sow-view" hidden>
-            <div id="sow-crumbs" class="sow-crumbs"></div>
+            <div class="sow-toolbar">
+              <div id="sow-crumbs" class="sow-crumbs"></div>
+              <button id="sow-layout" class="ghost small" title="Switch between grid and list">List</button>
+            </div>
             <div id="treemap" class="treemap"></div>
             <div id="sow-legend" class="sow-legend"></div>
           </div>
