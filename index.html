@@ -33,7 +33,6 @@
         <div class="topbar-center" id="topbar-title" data-tauri-drag-region>Transfers</div>
         <div class="topbar-actions" data-tauri-drag-region>
           <button id="save-transfer" class="ghost">Save Transfer</button>
-          <button id="open-options" class="ghost">Options</button>
           <div class="window-controls">
             <button id="win-min" class="winbtn" title="Minimize" aria-label="Minimize">
               <svg width="11" height="11" viewBox="0 0 11 11"><rect x="1.5" y="5" width="8" height="1" fill="currentColor"/></svg>
@@ -59,10 +58,67 @@
         <section class="col col-center" id="center-panel">
           <div class="center-head">
             <h2 id="center-title">Saved Transfers</h2>
-            <button id="new-transfer" class="ghost small" title="Clear the current selection">New</button>
-            <button id="sow-exit" class="ghost small" hidden>Done</button>
+            <div class="center-head-actions">
+              <button id="open-options" class="ghost small" title="Options for this transfer">Options</button>
+              <button id="new-transfer" class="ghost small" title="Clear the current selection">New</button>
+              <button id="center-done" class="ghost small" hidden>Done</button>
+            </div>
           </div>
           <div id="transfer-list" class="transfer-list"></div>
+
+          <div id="options-view" class="center-scroll" hidden>
+            <div class="grid">
+              <label>Checksum
+                <select id="hash">
+                  <option value="xxh64">xxHash64 (fast, MHL standard)</option>
+                  <option value="xxh3">xxHash3 (fastest)</option>
+                  <option value="md5">MD5 (compatibility)</option>
+                </select>
+              </label>
+              <div class="checks">
+                <label class="check"><input type="checkbox" id="verify" checked /> Read-back verification</label>
+                <label class="check"><input type="checkbox" id="skip-existing" checked /> Skip files already at destination</label>
+                <label class="check"><input type="checkbox" id="resume" /> Resume interrupted transfer</label>
+                <label class="check"><input type="checkbox" id="manifest" checked /> Write manifest</label>
+                <label class="check"><input type="checkbox" id="owner-only" /> Only files I own (this account)</label>
+              </div>
+            </div>
+            <p class="hint muted">
+              “Only files I own” keeps files owned by your OS account. Works on
+              internal drives (NTFS/APFS); SD/CF cards (exFAT/FAT) have no
+              ownership, so it will match nothing there.
+            </p>
+
+            <h3>Filters</h3>
+            <div class="grid">
+              <label>Include extensions<input id="include-ext" placeholder="mov,mxf,wav" /></label>
+              <label>Exclude extensions<input id="exclude-ext" placeholder="tmp,thm" /></label>
+              <label>Min size<input id="min-size" placeholder="e.g. 10MB" /></label>
+              <label>Max size<input id="max-size" placeholder="e.g. 4GB" /></label>
+              <label>Modified after<input id="newer-than" placeholder="YYYY-MM-DD" /></label>
+              <label>Modified before<input id="older-than" placeholder="YYYY-MM-DD" /></label>
+            </div>
+
+            <h3>Exclusions</h3>
+            <ul id="exclude-list" class="exclude-list"></ul>
+            <div class="exclude-actions">
+              <button id="add-exclude-folder" class="small">Exclude folder</button>
+              <button id="add-exclude-file" class="small">Exclude file</button>
+            </div>
+
+            <h3>Folder template</h3>
+            <div class="grid">
+              <label>Project name<input id="project" placeholder="e.g. BeachShoot" /></label>
+              <label class="wide">Destination template
+                <input id="dest-template" placeholder="{project}/{YYYY}-{MM}-{DD}/{filename}" />
+              </label>
+            </div>
+            <p class="hint muted">
+              Tokens: {filename} {name} {ext} {reldir} {project} {YYYY} {MM} {DD} (job date)
+              {fYYYY} {fMM} {fDD} (file's recorded date). Leave blank to mirror the source tree.
+            </p>
+          </div>
+
           <div id="sow-view" class="sow-view" hidden>
             <div id="sow-crumbs" class="sow-crumbs"></div>
             <div id="treemap" class="treemap"></div>
@@ -90,69 +146,6 @@
         <button id="cancel" class="small" hidden>Cancel</button>
         <button id="start" class="primary">Harvest</button>
       </footer>
-    </div>
-
-    <!-- options drawer -->
-    <div id="options-overlay" class="overlay" hidden>
-      <aside class="drawer" id="options-drawer">
-        <div class="drawer-head">
-          <h2>Options</h2>
-          <button id="close-options" class="ghost">Done</button>
-        </div>
-
-        <div class="drawer-body">
-          <div class="grid">
-            <label>Checksum
-              <select id="hash">
-                <option value="xxh64">xxHash64 (fast, MHL standard)</option>
-                <option value="xxh3">xxHash3 (fastest)</option>
-                <option value="md5">MD5 (compatibility)</option>
-              </select>
-            </label>
-            <div class="checks">
-              <label class="check"><input type="checkbox" id="verify" checked /> Read-back verification</label>
-              <label class="check"><input type="checkbox" id="skip-existing" checked /> Skip files already at destination</label>
-              <label class="check"><input type="checkbox" id="resume" /> Resume interrupted transfer</label>
-              <label class="check"><input type="checkbox" id="manifest" checked /> Write manifest</label>
-              <label class="check"><input type="checkbox" id="owner-only" /> Only files I own (this account)</label>
-            </div>
-          </div>
-          <p class="hint muted">
-            “Only files I own” keeps files owned by your OS account. Works on
-            internal drives (NTFS/APFS); SD/CF cards (exFAT/FAT) have no
-            ownership, so it will match nothing there.
-          </p>
-
-          <h3>Filters</h3>
-          <div class="grid">
-            <label>Include extensions<input id="include-ext" placeholder="mov,mxf,wav" /></label>
-            <label>Exclude extensions<input id="exclude-ext" placeholder="tmp,thm" /></label>
-            <label>Min size<input id="min-size" placeholder="e.g. 10MB" /></label>
-            <label>Max size<input id="max-size" placeholder="e.g. 4GB" /></label>
-            <label>Modified after<input id="newer-than" placeholder="YYYY-MM-DD" /></label>
-            <label>Modified before<input id="older-than" placeholder="YYYY-MM-DD" /></label>
-          </div>
-
-          <h3>Exclusions</h3>
-          <ul id="exclude-list" class="exclude-list"></ul>
-          <div class="exclude-actions">
-            <button id="add-exclude-folder" class="small">Exclude folder</button>
-            <button id="add-exclude-file" class="small">Exclude file</button>
-          </div>
-
-          <h3>Folder template</h3>
-          <div class="grid">
-            <label>Project name<input id="project" placeholder="e.g. BeachShoot" /></label>
-            <label class="wide">Destination template
-              <input id="dest-template" placeholder="{project}/{YYYY}-{MM}-{DD}/{filename}" />
-            </label>
-          </div>
-          <p class="hint muted">
-            Tokens: {filename} {name} {ext} {reldir} {project} {YYYY} {MM} {DD} (job date)
-            {fYYYY} {fMM} {fDD} (file's recorded date). Leave blank to mirror the source tree.
-          </p>
-        </div>
-      </aside>
     </div>
 
     <!-- settings drawer (global) -->

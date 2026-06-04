@@ -553,17 +553,41 @@ async function sowOpen(path: string) {
   renderTreemap();
 }
 
+/// Switch what the center panel shows. The center is a dynamic panel that can
+/// display saved transfers, the per-transfer Options, or the Sow/Survey treemap.
+function showCenter(mode: "transfers" | "options" | "sow" | "survey") {
+  const panel = $("center-panel");
+  panel.classList.remove("sow", "survey");
+  if (mode === "sow" || mode === "survey") panel.classList.add(mode);
+  ($("transfer-list") as HTMLElement).hidden = mode !== "transfers";
+  ($("options-view") as HTMLElement).hidden = mode !== "options";
+  ($("sow-view") as HTMLElement).hidden = !(mode === "sow" || mode === "survey");
+  // header: Options/New only in the transfers view; Done in any sub-view
+  ($("open-options") as HTMLElement).hidden = mode !== "transfers";
+  ($("new-transfer") as HTMLElement).hidden = mode !== "transfers";
+  ($("center-done") as HTMLElement).hidden = mode === "transfers";
+}
+
+function enterOptions() {
+  $("center-title").textContent = "Options";
+  showCenter("options");
+}
+
+function exitCenter() {
+  $("center-title").textContent = "Saved Transfers";
+  showCenter("transfers");
+  setStatus(
+    sources.length && destinations.length
+      ? "Ready."
+      : "Add a source and a destination to begin.",
+  );
+}
+
 function openVisualizer(root: string, mode: "sow" | "survey") {
   sowMode = mode;
   sowSource = root;
-  const panel = $("center-panel");
-  panel.classList.remove("sow", "survey");
-  panel.classList.add(mode);
   $("center-title").textContent = `${mode === "sow" ? "Sow" : "Survey"} — ${basename(root)}`;
-  ($("transfer-list") as HTMLElement).hidden = true;
-  ($("sow-view") as HTMLElement).hidden = false;
-  ($("new-transfer") as HTMLElement).hidden = true;
-  ($("sow-exit") as HTMLElement).hidden = false;
+  showCenter(mode);
   setStatus(
     mode === "sow"
       ? "Click folders to explore; click files (or ✕) to exclude them from the transfer."
@@ -583,15 +607,6 @@ function enterSow() {
 async function enterSurvey() {
   const f = await open({ directory: true, multiple: false });
   if (typeof f === "string") openVisualizer(f, "survey");
-}
-
-function exitSow() {
-  $("center-panel").classList.remove("sow", "survey");
-  $("center-title").textContent = "Saved Transfers";
-  ($("sow-view") as HTMLElement).hidden = true;
-  ($("transfer-list") as HTMLElement).hidden = false;
-  ($("new-transfer") as HTMLElement).hidden = false;
-  ($("sow-exit") as HTMLElement).hidden = true;
 }
 
 // ---- status / progress ----------------------------------------------------
@@ -1143,17 +1158,13 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("save-transfer").onclick = saveTransfer;
   $("new-transfer").onclick = clearAll;
   $("sow-btn").onclick = enterSow;
-  $("sow-exit").onclick = exitSow;
+  $("center-done").onclick = exitCenter;
+  $("open-options").onclick = enterOptions;
   window.addEventListener("resize", () => {
     if (!($("sow-view") as HTMLElement).hidden && sowListing) renderTreemap();
   });
   const reRenderIfSow = () => {
     if (!($("sow-view") as HTMLElement).hidden && sowListing) renderTreemap();
-  };
-  $("open-options").onclick = () => toggleOverlay("options-overlay", true);
-  $("close-options").onclick = () => {
-    toggleOverlay("options-overlay", false);
-    reRenderIfSow();
   };
   $("close-settings").onclick = async () => {
     await saveSettings();
@@ -1181,13 +1192,13 @@ window.addEventListener("DOMContentLoaded", async () => {
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     toggleMenu(false);
-    const overlays = ["options-overlay", "settings-overlay", "result-overlay", "about-overlay", "plan-overlay", "history-overlay"];
+    const overlays = ["settings-overlay", "result-overlay", "about-overlay", "plan-overlay", "history-overlay"];
     const open = overlays.find((id) => !($(id) as HTMLElement).hidden);
     if (open) {
       if (open === "settings-overlay") saveSettings();
       toggleOverlay(open, false);
-    } else if (!($("sow-view") as HTMLElement).hidden) {
-      exitSow();
+    } else if (!($("center-done") as HTMLElement).hidden) {
+      exitCenter();
     }
   });
   $("menu-pop").addEventListener("click", (e) => e.stopPropagation());
@@ -1197,7 +1208,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       switch (b.dataset.act) {
         case "new": clearAll(); break;
         case "save": saveTransfer(); break;
-        case "options": toggleOverlay("options-overlay", true); break;
+        case "options": enterOptions(); break;
         case "settings": fillSettingsForm(); toggleOverlay("settings-overlay", true); break;
         case "survey": enterSurvey(); break;
         case "verify": runVerify(); break;
@@ -1208,7 +1219,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     };
   });
 
-  for (const id of ["options-overlay", "settings-overlay", "result-overlay", "about-overlay", "plan-overlay", "history-overlay"]) {
+  for (const id of ["settings-overlay", "result-overlay", "about-overlay", "plan-overlay", "history-overlay"]) {
     $(id).addEventListener("click", (e) => {
       if (e.target === $(id)) toggleOverlay(id, false);
     });

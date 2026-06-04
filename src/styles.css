@@ -384,6 +384,27 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.center-head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-shrink: 0;
+}
+/* scrollable center view (Options shown inline in the center panel) */
+.center-scroll {
+  position: relative;
+  height: calc(100% - 42px);
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.center-scroll h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--ash);
+  margin: var(--s5) 0 var(--s3);
+  font-weight: 600;
+}
 .transfer-list {
   position: relative;
   height: calc(100% - 42px);
