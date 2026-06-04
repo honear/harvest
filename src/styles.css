@@ -937,6 +937,28 @@ button:disabled {
   font-size: 13px;
 }
 
+/* keyboard focus — visible, accent-tinted */
+:focus-visible {
+  outline: 2px solid var(--mode-accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--mode-accent);
+  outline-offset: 1px;
+}
+
+/* graceful scaling when the window is narrow */
+@media (max-width: 880px) {
+  .columns {
+    grid-template-columns: 196px minmax(0, 1fr) 196px;
+    gap: var(--s3);
+    padding: var(--s3) var(--s4) var(--s4);
+  }
+}
+
 .muted {
   color: var(--ash);
 }

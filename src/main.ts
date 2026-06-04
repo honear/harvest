@@ -188,6 +188,8 @@ function renderColumn(role: "source" | "dest") {
       const rm = document.createElement("button");
       rm.className = "ghost danger remove";
       rm.textContent = "✕";
+      rm.setAttribute("aria-label", `Remove ${basename(path)}`);
+      rm.title = "Remove";
       rm.onclick = () => {
         items.splice(i, 1);
         renderColumn(role);
@@ -257,6 +259,7 @@ function renderExclusions() {
     const rm = document.createElement("button");
     rm.className = "ghost danger remove";
     rm.textContent = "✕";
+    rm.setAttribute("aria-label", `Remove exclusion ${p}`);
     rm.onclick = () => {
       excludePaths.splice(i, 1);
       renderExclusions();
@@ -492,6 +495,7 @@ function renderTreemap() {
       x.className = "tile-x";
       x.textContent = manual ? "+" : "✕";
       x.title = manual ? "Include in transfer" : "Exclude from transfer";
+      x.setAttribute("aria-label", `${manual ? "Include" : "Exclude"} ${e.name}`);
       x.onclick = (ev) => {
         ev.stopPropagation();
         toggleExclude(e.path);
@@ -1137,6 +1141,20 @@ window.addEventListener("DOMContentLoaded", async () => {
     toggleMenu();
   };
   document.addEventListener("click", () => toggleMenu(false));
+
+  // Escape closes the menu, any open overlay, or exits the Sow/Survey view.
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    toggleMenu(false);
+    const overlays = ["options-overlay", "settings-overlay", "result-overlay", "about-overlay", "plan-overlay", "history-overlay"];
+    const open = overlays.find((id) => !($(id) as HTMLElement).hidden);
+    if (open) {
+      if (open === "settings-overlay") saveSettings();
+      toggleOverlay(open, false);
+    } else if (!($("sow-view") as HTMLElement).hidden) {
+      exitSow();
+    }
+  });
   $("menu-pop").addEventListener("click", (e) => e.stopPropagation());
   $("menu-pop").querySelectorAll<HTMLButtonElement>("button").forEach((b) => {
     b.onclick = () => {
