@@ -20,6 +20,11 @@ use harvest_core::{plan, run_harvest, run_verify, Filter, HarvestConfig, Harvest
 #[derive(Default)]
 struct Cancel(Arc<AtomicBool>);
 
+/// Caches the most-recently scanned source's file list so the live Sow readout
+/// can recompute the filtered total in-memory instead of re-walking the disk.
+#[derive(Default)]
+struct ScanCache(std::sync::Mutex<Option<(String, Vec<harvest_core::SourceFile>)>>);
+
 /// Free bytes, total bytes, and removable flag of the drive containing `path`.
 fn drive_space(path: &str) -> (u64, u64, bool) {
     let disks = sysinfo::Disks::new_with_refreshed_list();
@@ -126,23 +131,37 @@ struct SizeInfo {
 }
 
 #[tauri::command]
-async fn transfer_size(req: CopyRequest) -> Result<SizeInfo, String> {
+async fn transfer_size(req: CopyRequest, cache: tauri::State<'_, ScanCache>) -> Result<SizeInfo, String> {
     let cfg = build_config(req).map_err(|e| format!("{e:#}"))?;
-    tauri::async_runtime::spawn_blocking(move || {
+    let key = cfg.source.display().to_string();
+    let sum = |list: &[harvest_core::SourceFile]| {
         let mut files = 0u64;
         let mut bytes = 0u64;
-        if let Ok(list) = harvest_core::scan(&cfg.source) {
-            for f in &list {
-                if cfg.filter.accepts(f) {
-                    files += 1;
-                    bytes += f.size;
-                }
+        for f in list {
+            if cfg.filter.accepts(f) {
+                files += 1;
+                bytes += f.size;
             }
         }
         SizeInfo { files, bytes }
-    })
-    .await
-    .map_err(|e| e.to_string())
+    };
+    // Cache hit: recompute from the in-memory list (no disk walk).
+    {
+        let guard = cache.0.lock().unwrap();
+        if let Some((s, list)) = guard.as_ref() {
+            if *s == key {
+                return Ok(sum(list));
+            }
+        }
+    }
+    // Miss: walk once, cache it, then sum.
+    let src = cfg.source.clone();
+    let scanned = tauri::async_runtime::spawn_blocking(move || harvest_core::scan(&src).unwrap_or_default())
+        .await
+        .map_err(|e| e.to_string())?;
+    let result = sum(&scanned);
+    *cache.0.lock().unwrap() = Some((key, scanned));
+    Ok(result)
 }
 
 /// One immediate child of a folder, with its recursive total size — feeds the
@@ -750,6 +769,7 @@ pub fn run() {
                 .build(),
         )
         .manage(Cancel::default())
+        .manage(ScanCache::default())
         .invoke_handler(tauri::generate_handler![
             inspect_path,
             scan_dir,
