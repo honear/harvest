@@ -1,10 +1,10 @@
-# Harvest
+# 🌱 Harvest
 
 Verified media ingest for macOS and Windows — safely copy footage and files
 from a source (SD card, camera, project folder) to one or more destinations,
 and **prove** the bytes arrived intact.
 
-Inspired by [Hedge Offshoot](https://hedge.co/products/offshoot). Open source.
+Inspired by [Hedge Offshoot](https://hedge.co/products/offshoot). Open source (MIT).
 
 ## Why
 
@@ -14,44 +14,54 @@ forces the data to physical disk, then **reads each destination back and
 compares checksums against the source**. If anything is wrong, you find out
 immediately — not when you go to edit the footage months later.
 
-## Status
+## Features
 
-Early development. The core engine and a CLI front end work today; a Tauri
-desktop GUI is planned.
-
-### Working now
-- Verified copy with full read-back verification (toggleable)
-- One source → multiple destinations in a single read
-- xxHash3 (fast, default) or MD5 (interop with media-hash tooling)
-- Parallel across files; live progress and throughput
-
-### Planned
-- Stop & resume (transfer journal)
-- Media Hash List (MHL) / sidecar manifest output
-- Filters (extension / size / date) and rename-on-ingest
-- Presets that build dated destination folder structures
-- Cross-project archive de-duplication with reflink/hardlink linking
-- Two-pane compare & conflict resolution
+- **Verified copy** — read-back verification of every byte (toggleable).
+- **One source → many destinations** in a single read (fan-out).
+- **Checksums:** xxHash64 (fast, MHL-standard default), xxHash3, or MD5.
+- **Skip / incremental** — re-runs skip files already present (path + size +
+  mtime); source modification times are preserved.
+- **Stop & resume** via a crash-safe transfer journal.
+- **Pre-flight compare** — before copying, see what's new / already there /
+  differs, with a free-space check.
+- **Filters** — include/exclude extensions, size and date ranges, owner, and a
+  managed exclude list.
+- **Folder templates** — organize on ingest, e.g. `{project}/{YYYY}-{MM}-{DD}/{filename}`.
+- **Manifests** — Media Hash List (MHL) or sidecar proof-of-transfer.
+- **Sow & Survey** — a treemap visualizer to explore a source and exclude files
+  by clicking (Sow), or survey any drive's disk usage (Survey).
+- **Saved transfers** (presets), transfer history, completion notifications,
+  keep-awake, and auto-eject of removable sources after a verified copy.
 
 ## Layout
 
 ```
 crates/
-  harvest-core/   UI-agnostic engine: hashing, verified copy, scanning
+  harvest-core/   UI-agnostic engine: hashing, verified copy, scan, filter,
+                  template, journal, manifest, plan/verify orchestration
   harvest-cli/    `harvest` command-line front end
-example/          FreeFileSync source — reference for compare/sync algorithms
+src/              desktop UI (TypeScript + Vite)
+src-tauri/        Tauri (Rust) backend for the desktop app
+example/          FreeFileSync source — local reference only (not built)
 ```
 
-## Build & run
+## Develop
 
-Requires a [Rust](https://rustup.rs) toolchain.
+Requires [Rust](https://rustup.rs) and [Node](https://nodejs.org).
+
+```sh
+npm install
+npm run tauri dev      # run the desktop app
+npm run build          # type-check + build the frontend
+cargo test             # engine tests
+```
+
+### CLI
 
 ```sh
 cargo build --release
-cargo test
-
 # Copy a folder to two backup drives, verifying each:
-harvest copy /path/to/SDCARD /Volumes/BackupA /Volumes/BackupB --hash xxh3
+harvest copy /path/to/SDCARD /Volumes/BackupA /Volumes/BackupB --hash xxh64
 ```
 
 ## License

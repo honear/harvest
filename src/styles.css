@@ -550,17 +550,17 @@ button:disabled {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 18px;
+  padding: var(--s4) var(--s5);
   border-bottom: 1px solid var(--divider);
 }
 .drawer-head h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 600;
   color: var(--ink);
 }
 .drawer-body {
-  padding: 18px;
+  padding: var(--s5);
   overflow-y: auto;
 }
 .drawer-body h3 {
@@ -568,19 +568,19 @@ button:disabled {
   text-transform: uppercase;
   letter-spacing: 2px;
   color: var(--ash);
-  margin: 24px 0 12px;
+  margin: var(--s6) 0 var(--s3);
   font-weight: 600;
 }
 
 .grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  gap: var(--s3);
 }
 .grid label {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--s1);
   font-size: 12.5px;
   color: var(--mute);
 }
