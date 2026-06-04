@@ -30,7 +30,7 @@ interface DirEntry {
   isDir: boolean;
   ext: string;
   mtimeMs: number;
-  comp: number[]; // bytes per [video, audio, image, other]
+  preview: { size: number; cat: number }[]; // folder's immediate children
 }
 interface DirListing {
   path: string;
@@ -331,19 +331,19 @@ interface Rect {
   w: number;
   h: number;
 }
-interface Placed {
-  e: DirEntry;
+interface Placed<T> {
+  e: T;
   x: number;
   y: number;
   w: number;
   h: number;
 }
 
-function squarify(items: { area: number; e: DirEntry }[], rect: Rect): Placed[] {
-  const out: Placed[] = [];
+function squarify<T>(items: { area: number; e: T }[], rect: Rect): Placed<T>[] {
+  const out: Placed<T>[] = [];
   let r = { ...rect };
   const remaining = items.slice();
-  let row: { area: number; e: DirEntry }[] = [];
+  let row: { area: number; e: T }[] = [];
 
   const worst = (rw: typeof row, len: number) => {
     const sum = rw.reduce((s, i) => s + i.area, 0);
@@ -431,23 +431,29 @@ function filterExcludes(e: DirEntry): boolean {
   return false;
 }
 
-/// Build a weighted gradient from a folder's content composition (bytes per
-/// [video, audio, image, other]) for the blurred preview behind a folder tile.
-function compGradient(comp: number[]): string | null {
-  if (!comp || comp.length < 4) return null;
-  const colors = ["#3b9eff", "#11ff99", "#ff801f", "#ffc53d"];
-  const total = comp.reduce((a, b) => a + b, 0);
+const CAT_COLORS = ["#3b9eff", "#11ff99", "#ff801f", "#ffc53d"];
+
+/// Build a blurred, grayscale mini-treemap of a folder's contents as an overlay
+/// element placed behind the tile label. Returns null if there's nothing to show.
+function buildPreview(cells: { size: number; cat: number }[], w: number, h: number): HTMLElement | null {
+  if (!cells || cells.length === 0 || w < 8 || h < 8) return null;
+  const total = cells.reduce((a, c) => a + c.size, 0);
   if (total <= 0) return null;
-  let acc = 0;
-  const stops: string[] = [];
-  for (let i = 0; i < 4; i++) {
-    if (comp[i] <= 0) continue;
-    const s = (acc / total) * 100;
-    acc += comp[i];
-    const e = (acc / total) * 100;
-    stops.push(`${colors[i]} ${s.toFixed(1)}% ${e.toFixed(1)}%`);
+  const layer = document.createElement("div");
+  layer.className = "tile-preview";
+  const area = w * h;
+  const items = cells.filter((c) => c.size > 0).map((c) => ({ area: (c.size / total) * area, e: c }));
+  const placed = squarify(items, { x: 0, y: 0, w, h });
+  for (const p of placed) {
+    const cell = document.createElement("i");
+    cell.style.left = `${p.x}px`;
+    cell.style.top = `${p.y}px`;
+    cell.style.width = `${Math.max(0, p.w)}px`;
+    cell.style.height = `${Math.max(0, p.h)}px`;
+    cell.style.background = CAT_COLORS[p.e.cat] ?? CAT_COLORS[3];
+    layer.appendChild(cell);
   }
-  return `linear-gradient(135deg, ${stops.join(", ")})`;
+  return layer;
 }
 
 function extColor(ext: string): string {
@@ -532,17 +538,12 @@ function renderTreemap() {
     div.style.top = `${p.y}px`;
     div.style.width = `${Math.max(0, p.w - 2)}px`;
     div.style.height = `${Math.max(0, p.h - 2)}px`;
-    if (e.isDir) {
-      div.style.background = "var(--surface-elevated)";
-      const g = compGradient(e.comp);
-      if (g) {
-        div.style.setProperty("--comp", g);
-        div.classList.add("has-comp");
-      }
-    } else {
-      div.style.background = extColor(e.ext);
-    }
+    div.style.background = e.isDir ? "var(--surface-elevated)" : extColor(e.ext);
     div.innerHTML = `<div class="tile-name">${e.name}${e.isDir ? "/" : ""}</div><div class="tile-size">${humanBytes(e.size)}</div>`;
+    if (e.isDir) {
+      const layer = buildPreview(e.preview, Math.max(0, p.w - 2), Math.max(0, p.h - 2));
+      if (layer) div.appendChild(layer);
+    }
     const why = filtered ? " · excluded by Options filter" : e.isDir ? " · click to open" : survey ? "" : " · click to exclude";
     div.title = `${e.path}\n${humanBytes(e.size)}${why}`;
     div.onclick = () => {

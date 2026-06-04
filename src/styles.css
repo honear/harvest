@@ -938,15 +938,18 @@ button:disabled {
   outline: 2px solid var(--ink);
   z-index: 2;
 }
-/* folder tiles: blurred, desaturated preview of their contents */
-.tile.dir.has-comp::before {
-  content: "";
+/* folder tiles: blurred, fully-desaturated mini-treemap of their contents */
+.tile-preview {
   position: absolute;
   inset: 0;
-  background: var(--comp);
-  filter: blur(12px) saturate(0.5);
-  opacity: 0.42;
   z-index: 0;
+  filter: blur(11px) grayscale(1) brightness(1.05);
+  opacity: 0.5;
+  pointer-events: none;
+}
+.tile-preview > i {
+  position: absolute;
+  display: block;
 }
 .tile .tile-name,
 .tile .tile-size {

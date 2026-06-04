@@ -5,6 +5,7 @@
 //! progress to the front end as events. Presets are stored as JSON in the app
 //! config directory.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -128,9 +129,18 @@ struct DirEntry {
     ext: String,
     /// Modification time in milliseconds since the Unix epoch (for date filters).
     mtime_ms: i64,
-    /// Bytes by file-type category [video, audio, image, other] — for folders,
-    /// a content-composition preview in the treemap.
-    comp: [u64; 4],
+    /// For folders: the immediate children (size + dominant type) used to draw a
+    /// blurred mini-treemap preview of the contents. Empty for files.
+    preview: Vec<PreviewCell>,
+}
+
+/// One cell of a folder's content preview.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct PreviewCell {
+    size: u64,
+    /// Dominant file-type category index (0=video,1=audio,2=image,3=other).
+    cat: u8,
 }
 
 /// File-type category index used for the folder composition preview.
@@ -160,18 +170,37 @@ struct DirListing {
     entries: Vec<DirEntry>,
 }
 
-/// Recursive total size and content composition (bytes per category) of a dir.
-fn dir_stats(p: &std::path::Path) -> (u64, [u64; 4]) {
+/// Recursive total size of a dir + a preview of its immediate children
+/// (each child's total size and dominant type), largest first, capped.
+fn dir_stats(p: &std::path::Path) -> (u64, Vec<PreviewCell>) {
     let mut total = 0u64;
-    let mut comp = [0u64; 4];
+    // group descendants by their immediate child component under `p`
+    let mut groups: HashMap<String, (u64, [u64; 4])> = HashMap::new();
     if let Ok(list) = harvest_core::scan(p) {
         for f in &list {
             total += f.size;
+            let key = f
+                .rel
+                .components()
+                .next()
+                .map(|c| c.as_os_str().to_string_lossy().to_string())
+                .unwrap_or_default();
             let ext = f.rel.extension().map(|x| x.to_string_lossy().to_lowercase()).unwrap_or_default();
-            comp[category(&ext)] += f.size;
+            let g = groups.entry(key).or_insert((0, [0u64; 4]));
+            g.0 += f.size;
+            g.1[category(&ext)] += f.size;
         }
     }
-    (total, comp)
+    let mut cells: Vec<PreviewCell> = groups
+        .into_values()
+        .map(|(size, cat)| {
+            let dom = (0..4).max_by_key(|&i| cat[i]).unwrap_or(3) as u8;
+            PreviewCell { size, cat: dom }
+        })
+        .collect();
+    cells.sort_by(|a, b| b.size.cmp(&a.size));
+    cells.truncate(40);
+    (total, cells)
 }
 
 /// List a folder's immediate children, each with its total recursive size,
@@ -188,7 +217,7 @@ async fn scan_dir(path: String) -> Result<DirListing, String> {
             let Ok(md) = e.metadata() else { continue };
             let mtime_ms = (harvest_core::mtime_ns(&md) / 1_000_000) as i64;
             if md.is_dir() {
-                let (size, comp) = dir_stats(&p);
+                let (size, preview) = dir_stats(&p);
                 total += size;
                 entries.push(DirEntry {
                     name: e.file_name().to_string_lossy().to_string(),
@@ -197,7 +226,7 @@ async fn scan_dir(path: String) -> Result<DirListing, String> {
                     is_dir: true,
                     ext: String::new(),
                     mtime_ms,
-                    comp,
+                    preview,
                 });
             } else if md.is_file() {
                 total += md.len();
@@ -205,8 +234,6 @@ async fn scan_dir(path: String) -> Result<DirListing, String> {
                     .extension()
                     .map(|x| x.to_string_lossy().to_lowercase())
                     .unwrap_or_default();
-                let mut comp = [0u64; 4];
-                comp[category(&ext)] = md.len();
                 entries.push(DirEntry {
                     name: e.file_name().to_string_lossy().to_string(),
                     path: p.display().to_string(),
@@ -214,7 +241,7 @@ async fn scan_dir(path: String) -> Result<DirListing, String> {
                     is_dir: false,
                     ext,
                     mtime_ms,
-                    comp,
+                    preview: Vec::new(),
                 });
             }
         }
