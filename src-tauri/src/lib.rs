@@ -14,24 +14,71 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_notification::NotificationExt;
 
-use harvest_core::{plan, run_harvest, Filter, HarvestConfig, HarvestEvent, HashAlgo};
+use harvest_core::{plan, run_harvest, run_verify, Filter, HarvestConfig, HarvestEvent, HashAlgo};
 
 /// Shared cancel flag, set by `cancel_harvest`, watched by the running transfer.
 #[derive(Default)]
 struct Cancel(Arc<AtomicBool>);
 
-/// Compute the free + total bytes of the drive that contains `path`.
-fn drive_space(path: &str) -> (u64, u64) {
+/// Free bytes, total bytes, and removable flag of the drive containing `path`.
+fn drive_space(path: &str) -> (u64, u64, bool) {
     let disks = sysinfo::Disks::new_with_refreshed_list();
     let needle = path.to_lowercase();
-    let mut best: Option<(usize, u64, u64)> = None;
+    let mut best: Option<(usize, u64, u64, bool)> = None;
     for d in disks.iter() {
         let mount = d.mount_point().to_string_lossy().to_lowercase();
-        if needle.starts_with(&mount) && best.map_or(true, |(len, _, _)| mount.len() > len) {
-            best = Some((mount.len(), d.available_space(), d.total_space()));
+        if needle.starts_with(&mount) && best.map_or(true, |(len, ..)| mount.len() > len) {
+            best = Some((mount.len(), d.available_space(), d.total_space(), d.is_removable()));
         }
     }
-    best.map(|(_, f, t)| (f, t)).unwrap_or((0, 0))
+    best.map(|(_, f, t, r)| (f, t, r)).unwrap_or((0, 0, false))
+}
+
+/// The mount point (volume root) that contains `path`.
+fn mount_for(path: &str) -> String {
+    let disks = sysinfo::Disks::new_with_refreshed_list();
+    let needle = path.to_lowercase();
+    let mut best: Option<(usize, String)> = None;
+    for d in disks.iter() {
+        let mount = d.mount_point().to_string_lossy().to_string();
+        let ml = mount.to_lowercase();
+        if needle.starts_with(&ml) && best.as_ref().map_or(true, |(len, _)| ml.len() > *len) {
+            best = Some((ml.len(), mount));
+        }
+    }
+    best.map(|(_, m)| m).unwrap_or_else(|| path.to_string())
+}
+
+/// Eject/unmount the removable drive that contains `path` (best-effort).
+#[tauri::command]
+fn eject_drive(path: String) -> Result<(), String> {
+    let mount = mount_for(&path);
+    #[cfg(target_os = "macos")]
+    {
+        let ok = std::process::Command::new("diskutil")
+            .arg("eject")
+            .arg(&mount)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        return if ok { Ok(()) } else { Err(format!("could not eject {mount}")) };
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // Use the Shell "Eject" verb on the drive (e.g. E:\).
+        let ps = format!(
+            "(New-Object -ComObject Shell.Application).Namespace(17).ParseName('{}').InvokeVerb('Eject')",
+            mount.replace('\'', "")
+        );
+        let ok = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &ps])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        return if ok { Ok(()) } else { Err(format!("could not eject {mount}")) };
+    }
+    #[allow(unreachable_code)]
+    Err("eject not supported on this platform".into())
 }
 
 /// A mounted drive/volume shown in the center "Disks" panel.
@@ -78,6 +125,8 @@ struct PathInfo {
     free_space: u64,
     /// Total size of the containing drive (0 if unknown).
     drive_total: u64,
+    /// Whether the containing drive is removable (SD card, USB, etc.).
+    removable: bool,
 }
 
 /// Count the files/bytes under a folder and report the containing drive's
@@ -91,11 +140,11 @@ async fn inspect_path(path: String) -> PathInfo {
             files = list.len() as u64;
             bytes = list.iter().map(|f| f.size).sum();
         }
-        let (free_space, drive_total) = drive_space(&path);
-        PathInfo { files, bytes, free_space, drive_total }
+        let (free_space, drive_total, removable) = drive_space(&path);
+        PathInfo { files, bytes, free_space, drive_total, removable }
     })
     .await
-    .unwrap_or(PathInfo { files: 0, bytes: 0, free_space: 0, drive_total: 0 })
+    .unwrap_or(PathInfo { files: 0, bytes: 0, free_space: 0, drive_total: 0, removable: false })
 }
 
 /// One immediate child of a folder, with its recursive total size — feeds the
@@ -330,7 +379,7 @@ async fn plan_harvest(req: CopyRequest) -> Result<PlanResult, String> {
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| format!("{e:#}"))?;
-    let (dest_free, _) = drive_space(&first_dest);
+    let (dest_free, _, _) = drive_space(&first_dest);
     let fits = dest_free == 0 || dest_free >= p.copy_bytes;
     Ok(PlanResult {
         total: p.total,
@@ -480,6 +529,69 @@ fn start_harvest(app: AppHandle, cancel: State<Cancel>, req: CopyRequest) -> Res
     Ok(())
 }
 
+/// Verify existing destination copies against the source (no copying). Streams
+/// the same harvest:planned/progress/done events; the done payload's `copied`
+/// is the number of files that verified OK.
+#[tauri::command]
+fn verify_harvest(app: AppHandle, cancel: State<Cancel>, req: CopyRequest) -> Result<(), String> {
+    let cfg = build_config(req).map_err(|e| format!("{e:#}"))?;
+    let flag = cancel.0.clone();
+    flag.store(false, Ordering::Release);
+
+    std::thread::spawn(move || {
+        let _awake = keepawake::Builder::default()
+            .idle(true)
+            .sleep(true)
+            .reason("Verifying media")
+            .app_name("Harvest")
+            .create()
+            .ok();
+        let emitter = app.clone();
+        let last = std::sync::Mutex::new(std::time::Instant::now());
+        let result = run_verify(&cfg, &flag, move |event| match event {
+            HarvestEvent::Planned { total_scanned, kept, to_copy, skipped, copy_bytes } => {
+                let _ = emitter.emit(
+                    "harvest:planned",
+                    PlannedPayload { total_scanned, kept, to_copy, skipped, copy_bytes },
+                );
+            }
+            HarvestEvent::FileDone { rel, dest, bytes, done_files, done_bytes, ok } => {
+                let mut guard = last.lock().unwrap();
+                if guard.elapsed().as_millis() >= 80 {
+                    *guard = std::time::Instant::now();
+                    drop(guard);
+                    let _ = emitter.emit(
+                        "harvest:progress",
+                        ProgressPayload { rel, dest, bytes, done_files, done_bytes, ok },
+                    );
+                }
+            }
+        });
+        match result {
+            Ok(o) => {
+                let _ = app.emit(
+                    "harvest:done",
+                    DonePayload {
+                        success: o.success(),
+                        copied: o.copied,
+                        skipped: o.skipped,
+                        copied_bytes: o.copied_bytes,
+                        verify_failures: o.verify_failures,
+                        errors: o.errors,
+                        manifest_path: None,
+                        journal_path: String::new(),
+                        cancelled: o.cancelled,
+                    },
+                );
+            }
+            Err(e) => {
+                let _ = app.emit("harvest:failed", format!("{e:#}"));
+            }
+        }
+    });
+    Ok(())
+}
+
 fn presets_path(app: &AppHandle) -> anyhow::Result<PathBuf> {
     let dir = app.path().app_config_dir()?;
     std::fs::create_dir_all(&dir).ok();
@@ -534,6 +646,8 @@ pub fn run() {
             scan_dir,
             plan_harvest,
             start_harvest,
+            verify_harvest,
+            eject_drive,
             cancel_harvest,
             list_history,
             clear_history,

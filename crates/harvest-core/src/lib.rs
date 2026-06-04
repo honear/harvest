@@ -24,8 +24,8 @@ pub use hash::{hash_file, HashAlgo, Hasher};
 pub use journal::{Journal, JournalHeader, JournalRecord, JOURNAL_VERSION};
 pub use manifest::{to_mhl, to_sidecar, ManifestEntry};
 pub use run::{
-    forward_slash, plan, run_harvest, HarvestConfig, HarvestEvent, HarvestOutcome, HarvestPlan,
-    JOURNAL_NAME,
+    forward_slash, plan, run_harvest, run_verify, HarvestConfig, HarvestEvent, HarvestOutcome,
+    HarvestPlan, JOURNAL_NAME,
 };
 pub use scan::{mtime_ns, scan, SourceFile};
 pub use template::{render as render_template, RenderCtx};

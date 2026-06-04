@@ -749,6 +749,13 @@ button:disabled {
   --mode-accent: var(--sow);
   --mode-glow: var(--sow-glow);
 }
+.col-center.survey {
+  --mode-accent: var(--survey);
+  --mode-glow: var(--survey-glow);
+}
+.col-center.survey .sow-crumbs button {
+  color: var(--survey);
+}
 .sow-view {
   position: relative;
   height: calc(100% - 42px);
@@ -837,8 +844,42 @@ button:disabled {
   padding: 0;
 }
 .tile.tiny .tile-name,
-.tile.tiny .tile-size {
+.tile.tiny .tile-size,
+.tile.tiny .tile-x {
   display: none;
+}
+.tile-x {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  padding: 0;
+  width: 18px;
+  height: 18px;
+  line-height: 1;
+  font-size: 11px;
+  border-radius: 4px;
+  border: none;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  display: none;
+}
+.tile:hover .tile-x {
+  display: block;
+}
+.tile.excluded .tile-x {
+  display: block;
+  background: var(--danger);
+}
+
+/* eject buttons in the result drawer */
+.result-eject {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+.result-eject button {
+  background: var(--surface-elevated);
 }
 .sow-legend {
   display: flex;

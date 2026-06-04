@@ -10,6 +10,7 @@ interface PathInfo {
   bytes: number;
   freeSpace: number;
   driveTotal: number;
+  removable: boolean;
 }
 interface DirEntry {
   name: string;
@@ -112,10 +113,11 @@ let destinations: string[] = [];
 let excludePaths: string[] = [];
 const infoCache: Record<string, PathInfo> = {};
 
-// Sow visualizer state
+// Sow / Survey visualizer state
 let sowSource = "";
 let sowPath = "";
 let sowListing: DirListing | null = null;
+let sowMode: "sow" | "survey" = "sow";
 
 function renderColumn(role: "source" | "dest") {
   const items = role === "source" ? sources : destinations;
@@ -390,9 +392,25 @@ function renderTreemap() {
     div.style.width = `${Math.max(0, p.w - 2)}px`;
     div.style.height = `${Math.max(0, p.h - 2)}px`;
     div.style.background = e.isDir ? "var(--surface-elevated)" : extColor(e.ext);
+    const survey = sowMode === "survey";
     div.innerHTML = `<div class="tile-name">${e.name}${e.isDir ? "/" : ""}</div><div class="tile-size">${humanBytes(e.size)}</div>`;
-    div.title = `${e.path}\n${humanBytes(e.size)}${e.isDir ? " · click to open" : " · click to exclude"}`;
-    div.onclick = () => (e.isDir ? sowOpen(e.path) : toggleExclude(e.path));
+    div.title = `${e.path}\n${humanBytes(e.size)}${e.isDir ? " · click to open" : survey ? "" : " · click to exclude"}`;
+    div.onclick = () => {
+      if (e.isDir) sowOpen(e.path);
+      else if (!survey) toggleExclude(e.path);
+    };
+    // exclude/include corner button — only when building a transfer (Sow mode)
+    if (!survey) {
+      const x = document.createElement("button");
+      x.className = "tile-x";
+      x.textContent = isExcluded(e.path) ? "+" : "✕";
+      x.title = isExcluded(e.path) ? "Include in transfer" : "Exclude from transfer";
+      x.onclick = (ev) => {
+        ev.stopPropagation();
+        toggleExclude(e.path);
+      };
+      div.appendChild(x);
+    }
     tm.appendChild(div);
   }
   renderLegend();
@@ -412,23 +430,40 @@ async function sowOpen(path: string) {
   renderTreemap();
 }
 
+function openVisualizer(root: string, mode: "sow" | "survey") {
+  sowMode = mode;
+  sowSource = root;
+  const panel = $("center-panel");
+  panel.classList.remove("sow", "survey");
+  panel.classList.add(mode);
+  $("center-title").textContent = `${mode === "sow" ? "Sow" : "Survey"} — ${basename(root)}`;
+  ($("transfer-list") as HTMLElement).hidden = true;
+  ($("sow-view") as HTMLElement).hidden = false;
+  ($("new-transfer") as HTMLElement).hidden = true;
+  ($("sow-exit") as HTMLElement).hidden = false;
+  setStatus(
+    mode === "sow"
+      ? "Click folders to explore; click files (or ✕) to exclude them from the transfer."
+      : "Surveying disk usage. Click folders to explore.",
+  );
+  sowOpen(root);
+}
+
 function enterSow() {
   if (sources.length === 0) {
     setStatus("Add a source folder to explore.", "error");
     return;
   }
-  sowSource = sources[0];
-  $("center-panel").classList.add("sow");
-  $("center-title").textContent = `Sow — ${basename(sowSource)}`;
-  ($("transfer-list") as HTMLElement).hidden = true;
-  ($("sow-view") as HTMLElement).hidden = false;
-  ($("new-transfer") as HTMLElement).hidden = true;
-  ($("sow-exit") as HTMLElement).hidden = false;
-  setStatus("Click folders to explore; click files to exclude them from the transfer.");
-  sowOpen(sowSource);
+  openVisualizer(sources[0], "sow");
 }
+
+async function enterSurvey() {
+  const f = await open({ directory: true, multiple: false });
+  if (typeof f === "string") openVisualizer(f, "survey");
+}
+
 function exitSow() {
-  $("center-panel").classList.remove("sow");
+  $("center-panel").classList.remove("sow", "survey");
   $("center-title").textContent = "Saved Transfers";
   ($("sow-view") as HTMLElement).hidden = true;
   ($("transfer-list") as HTMLElement).hidden = false;
@@ -704,24 +739,110 @@ async function runQueue() {
   }
 }
 
-function showResult(d: Done) {
+function verifyOne(source: string): Promise<Done> {
+  const req = { source, dests: destinations, resume: false, ...gatherCommon() };
+  return new Promise((resolve, reject) => {
+    resolveCurrent = resolve;
+    invoke("verify_harvest", { req }).catch((e) => {
+      resolveCurrent = null;
+      reject(e);
+    });
+  });
+}
+
+async function runVerify() {
+  if (running) return;
+  if (sources.length === 0 || destinations.length === 0) {
+    setStatus("Add a source and destination to verify.", "error");
+    return;
+  }
+  running = true;
+  refreshActionState();
+  showProgress(true);
+  ($("result-overlay") as HTMLElement).hidden = true;
+  const agg = { ok: 0, bytes: 0, fails: [] as string[], errors: [] as string[], cancelled: false };
+  try {
+    for (let i = 0; i < sources.length; i++) {
+      setStatus(`Verifying ${basename(sources[i])} (${i + 1}/${sources.length})…`);
+      const d = await verifyOne(sources[i]);
+      agg.ok += d.copied;
+      agg.bytes += d.copiedBytes;
+      agg.fails.push(...d.verifyFailures);
+      agg.errors.push(...d.errors);
+      if (d.cancelled) {
+        agg.cancelled = true;
+        break;
+      }
+    }
+    const success = !agg.cancelled && agg.errors.length === 0 && agg.fails.length === 0;
+    showResult(
+      {
+        success, copied: agg.ok, skipped: 0, copiedBytes: agg.bytes,
+        verifyFailures: agg.fails, errors: agg.errors,
+        manifestPath: null, journalPath: "", cancelled: agg.cancelled,
+      },
+      { verify: true },
+    );
+    setStatus(success ? "Verified." : "Verification found problems.", success ? "ok" : "error");
+  } catch (e) {
+    setStatus(`Failed: ${e}`, "error");
+  } finally {
+    running = false;
+    showProgress(false);
+    refreshActionState();
+  }
+}
+
+function showResult(d: Done, opts: { verify?: boolean } = {}) {
   ($("result-overlay") as HTMLElement).hidden = false;
-  $("result-title").textContent = d.cancelled
-    ? "Cancelled"
-    : d.success
-      ? "✓ Harvest complete"
-      : "✗ Finished with problems";
-  const summary = $("result-summary");
-  summary.innerHTML = d.success
-    ? `${d.copied} copied, ${d.skipped} already present — <strong>${humanBytes(d.copiedBytes)}</strong> verified across ${destinations.length} destination(s).`
-    : d.cancelled
-      ? `Stopped after ${d.copied} file(s) copied. Re-run with Resume to continue.`
-      : `${d.errors.length} error(s), ${d.verifyFailures.length} verification failure(s).`;
+  if (opts.verify) {
+    $("result-title").textContent = d.success ? "✓ Verification passed" : "✗ Verification failed";
+    $("result-summary").innerHTML = d.success
+      ? `${d.copied} file(s) verified OK across ${destinations.length} destination(s).`
+      : `${d.verifyFailures.length} file(s) did not match the source.`;
+  } else {
+    $("result-title").textContent = d.cancelled
+      ? "Cancelled"
+      : d.success
+        ? "✓ Harvest complete"
+        : "✗ Finished with problems";
+    $("result-summary").innerHTML = d.success
+      ? `${d.copied} copied, ${d.skipped} already present — <strong>${humanBytes(d.copiedBytes)}</strong> verified across ${destinations.length} destination(s).`
+      : d.cancelled
+        ? `Stopped after ${d.copied} file(s) copied. Re-run with Resume to continue.`
+        : `${d.errors.length} error(s), ${d.verifyFailures.length} verification failure(s).`;
+  }
+
+  // Offer to eject any removable source (after a successful copy).
+  const eject = $("result-eject");
+  eject.innerHTML = "";
+  if (d.success && !opts.verify) {
+    for (const src of sources) {
+      if (infoCache[src]?.removable) {
+        const b = document.createElement("button");
+        b.textContent = `⏏ Eject ${basename(src)}`;
+        b.onclick = async () => {
+          b.disabled = true;
+          b.textContent = `Ejecting ${basename(src)}…`;
+          try {
+            await invoke("eject_drive", { path: src });
+            b.textContent = `Ejected ${basename(src)} ✓`;
+          } catch (e) {
+            b.disabled = false;
+            b.textContent = `Eject failed — retry ${basename(src)}`;
+            setStatus(`Eject failed: ${e}`, "error");
+          }
+        };
+        eject.appendChild(b);
+      }
+    }
+  }
+
   const detail: string[] = [];
   if (d.manifestPath) detail.push(`Manifest: ${d.manifestPath}`);
   if (d.errors.length) detail.push("", "Errors:", ...d.errors.map((e) => "  " + e));
-  if (d.verifyFailures.length) detail.push("", "Verification failed:", ...d.verifyFailures.map((e) => "  " + e));
-  if (!d.success && d.journalPath) detail.push("", `Journal: ${d.journalPath}`);
+  if (d.verifyFailures.length) detail.push("", opts.verify ? "Did not match:" : "Verification failed:", ...d.verifyFailures.map((e) => "  " + e));
+  if (!d.success && !opts.verify && d.journalPath) detail.push("", `Journal: ${d.journalPath}`);
   $("result-detail").textContent = detail.join("\n");
 }
 
@@ -837,6 +958,8 @@ window.addEventListener("DOMContentLoaded", async () => {
         case "new": clearAll(); break;
         case "save": saveTransfer(); break;
         case "options": toggleOverlay("options-overlay", true); break;
+        case "survey": enterSurvey(); break;
+        case "verify": runVerify(); break;
         case "manifests": openDestinationFolder(); break;
         case "history": openHistory(); break;
         case "about": toggleOverlay("about-overlay", true); break;

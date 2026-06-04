@@ -10,13 +10,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use anyhow::{bail, Context, Result};
+use rayon::prelude::*;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 use crate::{
-    harvest_files, journal, render_template, scan, to_mhl, to_sidecar, Filter, HarvestOptions,
-    HashAlgo, Journal, JournalHeader, JournalRecord, ManifestEntry, RenderCtx, SourceFile,
-    JOURNAL_VERSION,
+    harvest_files, hash_file, journal, render_template, scan, to_mhl, to_sidecar, Filter,
+    HarvestOptions, HashAlgo, Journal, JournalHeader, JournalRecord, ManifestEntry, RenderCtx,
+    SourceFile, JOURNAL_VERSION,
 };
 
 pub const JOURNAL_NAME: &str = ".harvest-journal.jsonl";
@@ -386,6 +387,87 @@ pub fn run_harvest(
     Ok(outcome)
 }
 
+/// Re-verify existing destination copies against the source without copying.
+/// For each (filtered, templated) file, hashes the source and each destination
+/// and compares. Mismatches and missing destination files become
+/// `verify_failures`; `copied` reports how many verified OK.
+pub fn run_verify(
+    cfg: &HarvestConfig,
+    cancel: &std::sync::atomic::AtomicBool,
+    on_event: impl Fn(HarvestEvent) + Sync,
+) -> Result<HarvestOutcome> {
+    if !cfg.source.exists() {
+        bail!("source does not exist: {}", cfg.source.display());
+    }
+    if cfg.dests.is_empty() {
+        bail!("at least one destination is required");
+    }
+
+    let files = scan_filter_template(cfg)?;
+    let total = files.len();
+    let total_bytes: u64 = files.iter().map(|f| f.size).sum();
+    on_event(HarvestEvent::Planned {
+        total_scanned: total,
+        kept: total,
+        to_copy: total,
+        skipped: 0,
+        copy_bytes: total_bytes,
+    });
+
+    let buf = crate::DEFAULT_BUF_SIZE;
+    let done_files = AtomicU64::new(0);
+    let done_bytes = AtomicU64::new(0);
+    let failures: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+    let results: Vec<bool> = files
+        .par_iter()
+        .filter_map(|f| {
+            if cancel.load(Ordering::Acquire) {
+                return None;
+            }
+            let target_rel = f.dest_rel.as_deref().unwrap_or(&f.rel);
+            let src_hash = hash_file(&f.abs, cfg.algo, buf).ok();
+            let mut ok = true;
+            for root in &cfg.dests {
+                let dp = root.join(target_rel);
+                match (&src_hash, hash_file(&dp, cfg.algo, buf).ok()) {
+                    (Some(s), Some(d)) if *s == d => {}
+                    (_, None) => {
+                        failures.lock().unwrap().push(format!("missing: {}", dp.display()));
+                        ok = false;
+                    }
+                    _ => {
+                        failures.lock().unwrap().push(format!("mismatch: {}", dp.display()));
+                        ok = false;
+                    }
+                }
+            }
+            let db = done_bytes.fetch_add(f.size, Ordering::Relaxed) + f.size;
+            let df = done_files.fetch_add(1, Ordering::Relaxed) + 1;
+            on_event(HarvestEvent::FileDone {
+                rel: forward_slash(&f.rel),
+                dest: forward_slash(target_rel),
+                bytes: f.size,
+                done_files: df as usize,
+                done_bytes: db,
+                ok,
+            });
+            Some(ok)
+        })
+        .collect();
+
+    Ok(HarvestOutcome {
+        copied: results.iter().filter(|x| **x).count(),
+        skipped: 0,
+        copied_bytes: done_bytes.load(Ordering::Relaxed),
+        verify_failures: failures.into_inner().unwrap(),
+        errors: Vec::new(),
+        manifest_path: None,
+        journal_path: PathBuf::new(),
+        cancelled: cancel.load(Ordering::Acquire),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -462,6 +544,30 @@ mod tests {
         let again = run_harvest(&c, &no_cancel(), |_| {}).unwrap();
         assert_eq!(again.copied, 1, "with skip_existing off, the file is copied again");
         assert_eq!(again.skipped, 0);
+    }
+
+    #[test]
+    fn verify_detects_match_and_corruption() {
+        let root = temp_dir();
+        let src = root.join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("a.bin"), vec![3u8; 400]).unwrap();
+        std::fs::write(src.join("b.bin"), vec![4u8; 400]).unwrap();
+        let dest = root.join("dest");
+        let c = cfg(src, dest.clone());
+        run_harvest(&c, &no_cancel(), |_| {}).unwrap();
+
+        // Clean copy verifies OK.
+        let v1 = run_verify(&c, &no_cancel(), |_| {}).unwrap();
+        assert_eq!(v1.copied, 2);
+        assert!(v1.verify_failures.is_empty());
+
+        // Corrupt one destination file → caught.
+        std::fs::write(dest.join("b.bin"), vec![9u8; 400]).unwrap();
+        let v2 = run_verify(&c, &no_cancel(), |_| {}).unwrap();
+        assert_eq!(v2.copied, 1);
+        assert_eq!(v2.verify_failures.len(), 1);
+        assert!(v2.verify_failures[0].contains("mismatch"));
     }
 
     #[test]
