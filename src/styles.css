@@ -235,6 +235,15 @@ body {
   gap: var(--s2);
   transition: border-color 0.2s, box-shadow 0.25s;
 }
+/* per-side accent: Sources = orange (Sow), Destinations = green (Harvest) */
+.droplist[data-role="source"] {
+  --mode-accent: var(--sow);
+  --mode-glow: var(--sow-glow);
+}
+.droplist[data-role="dest"] {
+  --mode-accent: var(--harvest);
+  --mode-glow: var(--harvest-glow);
+}
 .droplist.drag-over {
   border-color: var(--mode-accent);
   box-shadow: inset 0 60px 80px -60px var(--mode-glow);
