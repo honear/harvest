@@ -251,7 +251,9 @@ async fn scan_dir(path: String) -> Result<DirListing, String> {
 
         for f in &list {
             total += f.size;
-            let ext = f.rel.extension().map(|x| x.to_string_lossy().to_lowercase()).unwrap_or_default();
+            let ext = harvest_core::normalize_ext(
+                &f.rel.extension().map(|x| x.to_string_lossy().to_lowercase()).unwrap_or_default(),
+            );
             let cat = category(&ext);
             let et = exts.entry(ext.clone()).or_insert((0, 0));
             et.0 += f.size;
@@ -306,6 +308,48 @@ async fn scan_dir(path: String) -> Result<DirListing, String> {
         exts.sort_by(|a, b| b.bytes.cmp(&a.bytes));
         exts.truncate(14);
 
+        Ok(DirListing { path, total, entries, exts })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Flatten a folder: every file underneath it as one list (no folders), each
+/// labeled by its path relative to `path`. Largest first, capped for rendering.
+#[tauri::command]
+async fn scan_flat(path: String) -> Result<DirListing, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = PathBuf::from(&path);
+        let list = harvest_core::scan(&base).map_err(|e| e.to_string())?;
+        let mut total = 0u64;
+        let mut exts: HashMap<String, (u64, u64)> = HashMap::new();
+        let mut entries: Vec<DirEntry> = Vec::with_capacity(list.len());
+        for f in &list {
+            total += f.size;
+            let ext = harvest_core::normalize_ext(
+                &f.rel.extension().map(|x| x.to_string_lossy().to_lowercase()).unwrap_or_default(),
+            );
+            let et = exts.entry(ext.clone()).or_insert((0, 0));
+            et.0 += f.size;
+            et.1 += 1;
+            entries.push(DirEntry {
+                name: harvest_core::forward_slash(&f.rel),
+                path: f.abs.display().to_string(),
+                size: f.size,
+                is_dir: false,
+                ext,
+                mtime_ms: (f.mtime_ns / 1_000_000) as i64,
+                children: Vec::new(),
+            });
+        }
+        entries.sort_by(|a, b| b.size.cmp(&a.size));
+        entries.truncate(2000);
+        let mut exts: Vec<ExtStat> = exts
+            .into_iter()
+            .map(|(ext, (bytes, files))| ExtStat { ext, bytes, files })
+            .collect();
+        exts.sort_by(|a, b| b.bytes.cmp(&a.bytes));
+        exts.truncate(14);
         Ok(DirListing { path, total, entries, exts })
     })
     .await
@@ -847,6 +891,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             inspect_path,
             scan_dir,
+            scan_flat,
             transfer_size,
             plan_harvest,
             start_harvest,

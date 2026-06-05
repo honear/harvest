@@ -132,7 +132,7 @@ impl Filter {
     ) -> Result<Self> {
         let parse_exts = |s: &str| -> HashSet<String> {
             s.split(',')
-                .map(|e| e.trim().trim_start_matches('.').to_lowercase())
+                .map(|e| normalize_ext(&e.trim().trim_start_matches('.').to_lowercase()))
                 .filter(|e| !e.is_empty())
                 .collect()
         };
@@ -196,6 +196,7 @@ impl Filter {
 
         match ext_of(&f.rel) {
             Some(ext) => {
+                let ext = normalize_ext(&ext);
                 if self.exclude_ext.contains(&ext) {
                     return false;
                 }
@@ -219,6 +220,20 @@ impl Filter {
 /// Lower-cased extension (without the dot), or `None` if the file has none.
 fn ext_of(rel: &Path) -> Option<String> {
     rel.extension().map(|e| e.to_string_lossy().to_lowercase())
+}
+
+/// Collapse versioned-backup extensions to a single canonical bucket.
+/// Cinema 4D saves backups as `scene.c4d@1234567`, which would otherwise show
+/// up as thousands of distinct "extensions" — merge any `base@<digits>` into
+/// `base@xxxx`. Input is expected lower-cased.
+pub fn normalize_ext(ext: &str) -> String {
+    if let Some(i) = ext.find('@') {
+        let tail = &ext[i + 1..];
+        if !tail.is_empty() && tail.chars().all(|c| c.is_ascii_digit()) {
+            return format!("{}@xxxx", &ext[..i]);
+        }
+    }
+    ext.to_string()
 }
 
 /// Treat an empty/whitespace string the same as `None`.

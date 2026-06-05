@@ -159,6 +159,7 @@ let sowPath = "";
 let sowListing: DirListing | null = null;
 let sowMode: "sow" | "survey" = "sow";
 let sowLayout: "grid" | "list" = "grid";
+let sowFlat = false;
 let sowToken = 0;
 
 function renderColumn(role: "source" | "dest") {
@@ -652,7 +653,7 @@ async function sowOpen(path: string) {
   const token = ++sowToken;
   let listing: DirListing;
   try {
-    listing = await invoke<DirListing>("scan_dir", { path });
+    listing = await invoke<DirListing>(sowFlat ? "scan_flat" : "scan_dir", { path });
   } catch (e) {
     if (token === sowToken) tm.innerHTML = `<div class="sow-hint">Could not scan: ${e}</div>`;
     return;
@@ -696,6 +697,8 @@ function exitCenter() {
 function openVisualizer(root: string, mode: "sow" | "survey") {
   sowMode = mode;
   sowSource = root;
+  sowFlat = false;
+  $("sow-flatten").classList.remove("active");
   $("center-title").textContent = `${mode === "sow" ? "Sow" : "Survey"} — ${basename(root)}`;
   showCenter(mode);
   setStatus(
@@ -1282,6 +1285,11 @@ window.addEventListener("DOMContentLoaded", async () => {
     sowLayout = sowLayout === "grid" ? "list" : "grid";
     $("sow-layout").textContent = sowLayout === "grid" ? "List" : "Grid";
     renderTreemap();
+  };
+  $("sow-flatten").onclick = () => {
+    sowFlat = !sowFlat;
+    $("sow-flatten").classList.toggle("active", sowFlat);
+    sowOpen(sowPath || sowSource);
   };
   // Click a file-type chip to exclude/include that format.
   $("sow-legend").addEventListener("click", (e) => {

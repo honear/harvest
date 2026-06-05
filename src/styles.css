@@ -918,6 +918,17 @@ button:disabled {
   font-size: 11.5px;
   color: var(--ash);
 }
+.sow-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+#sow-flatten.active {
+  color: var(--sow, #ff801f);
+  border-color: rgba(255, 128, 31, 0.55);
+  background: rgba(255, 128, 31, 0.12);
+}
 
 /* list view (WizTree-style) */
 .sow-list {

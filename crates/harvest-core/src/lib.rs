@@ -19,7 +19,7 @@ use anyhow::Result;
 use rayon::prelude::*;
 
 pub use copy::{copy_file_verified, DestReport, FileReport};
-pub use filter::{parse_date_ns, parse_size, Filter};
+pub use filter::{normalize_ext, parse_date_ns, parse_size, Filter};
 pub use hash::{hash_file, HashAlgo, Hasher};
 pub use journal::{Journal, JournalHeader, JournalRecord, JOURNAL_VERSION};
 pub use manifest::{to_mhl, to_sidecar, ManifestEntry};
