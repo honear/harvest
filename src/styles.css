@@ -1096,7 +1096,7 @@ button:disabled {
     var(--mute) 60%,
     var(--mute) 100%
   );
-  background-size: 220% 100%;
+  background-size: 300% 100%;
   background-repeat: no-repeat;
   -webkit-background-clip: text;
   background-clip: text;
@@ -1104,13 +1104,17 @@ button:disabled {
   color: transparent;
   animation: status-glimmer 5s ease-in-out infinite;
 }
+/* The 300% gradient always covers the text; the bright band starts off the
+   left edge, sweeps across, and exits off the right. Both 100% and 0% render
+   as plain muted text (band off-screen), so the loop has no visible jump —
+   45%→100% is a static pause before it sweeps again. */
 @keyframes status-glimmer {
   0% {
-    background-position: 120% 0;
+    background-position: 100% 0;
   }
-  55%,
+  45%,
   100% {
-    background-position: -20% 0;
+    background-position: 0% 0;
   }
 }
 @media (prefers-reduced-motion: reduce) {
