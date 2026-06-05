@@ -1225,6 +1225,13 @@ async function openDestinationFolder() {
 // ---- wire up --------------------------------------------------------------
 
 window.addEventListener("DOMContentLoaded", async () => {
+  // Light / dark theme toggle (persisted; head script applies it pre-paint).
+  $("theme-toggle").onclick = () => {
+    const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem("harvest-theme", next);
+  };
+
   // Custom window controls (native chrome is disabled).
   try {
     const appWindow = getCurrentWindow();

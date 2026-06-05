@@ -1,21 +1,41 @@
 /* Fonts are bundled via @fontsource imports in main.ts (offline-safe). */
 
-/* Design language: Resend (DESIGN.md) layered on a dark base — pure-black
-   canvas, surface luminance steps for elevation, translucent-white hairlines
-   instead of shadows, and per-mode colored atmospheric glows. */
+/* Design language: frosted-glass surfaces over a deep ambient gradient.
+   Dark = warm near-black with an amber glow rising from below; light = cool
+   blue-grey with a soft overhead highlight. Floating elements are translucent
+   glass (backdrop-blur + hairline border + top highlight + soft shadow), and
+   active states sit on a brighter "raised" chip. Everything is tokenised so the
+   two themes are just two sets of the same variables. */
 :root {
-  --canvas: #000000;
-  --surface-card: #0a0a0c;
-  --surface-elevated: #101012;
-  --surface-deep: #06060a;
-  --hairline: rgba(255, 255, 255, 0.06);
-  --hairline-strong: rgba(255, 255, 255, 0.14);
-  --divider: rgba(255, 255, 255, 0.04);
+  color-scheme: dark;
+  --canvas: #0d0b0a;
+  --surface-card: rgba(34, 30, 27, 0.46);
+  --surface-elevated: rgba(50, 44, 39, 0.58);
+  --surface-deep: rgba(20, 17, 15, 0.52);
+  --hairline: rgba(255, 248, 240, 0.08);
+  --hairline-strong: rgba(255, 248, 240, 0.17);
+  --divider: rgba(255, 248, 240, 0.06);
 
-  --ink: #fcfdff;
-  --body: rgba(252, 253, 255, 0.86);
-  --mute: #a1a4a5;
-  --ash: #888e90;
+  --ink: #f7f2ec;
+  --body: rgba(247, 242, 236, 0.82);
+  --mute: #b6aca1;
+  --ash: #8d857b;
+  --stone: #6a635b;
+
+  /* ── glassmorphism kit ── */
+  --glass-bg: rgba(42, 37, 33, 0.44);
+  --glass-bg-strong: rgba(54, 48, 42, 0.66);
+  --glass-border: rgba(255, 250, 244, 0.12);
+  --glass-raised: rgba(132, 122, 110, 0.32);
+  --glass-shadow: 0 12px 36px -10px rgba(0, 0, 0, 0.6);
+  --glass-highlight: inset 0 1px 0 rgba(255, 250, 244, 0.1);
+  --blur: blur(22px) saturate(135%);
+  --blur-sm: blur(13px) saturate(130%);
+
+  /* atmospheric base wash painted on <body>, swapped per theme */
+  --ambient:
+    radial-gradient(125% 95% at 50% 120%, rgba(216, 122, 40, 0.52), rgba(150, 78, 22, 0.12) 38%, transparent 66%),
+    radial-gradient(90% 70% at 8% -8%, rgba(58, 50, 44, 0.55), transparent 58%);
 
   /* accent + glow pairs — used as small accents and atmospheric washes */
   --harvest: #11ff99;
@@ -51,6 +71,47 @@
   font-family: var(--font);
 }
 
+/* ── light theme: cool blue-grey glass over a soft overhead highlight ── */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --canvas: #ccd3db;
+  --surface-card: rgba(255, 255, 255, 0.5);
+  --surface-elevated: rgba(255, 255, 255, 0.66);
+  --surface-deep: rgba(255, 255, 255, 0.42);
+  --hairline: rgba(38, 52, 74, 0.1);
+  --hairline-strong: rgba(38, 52, 74, 0.2);
+  --divider: rgba(38, 52, 74, 0.08);
+
+  --ink: #1b2026;
+  --body: rgba(27, 32, 38, 0.82);
+  --mute: #56606e;
+  --ash: #79828f;
+  --stone: #9aa3af;
+
+  --glass-bg: rgba(255, 255, 255, 0.52);
+  --glass-bg-strong: rgba(255, 255, 255, 0.74);
+  --glass-border: rgba(255, 255, 255, 0.72);
+  --glass-raised: rgba(255, 255, 255, 0.96);
+  --glass-shadow: 0 12px 32px -12px rgba(40, 60, 90, 0.24);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+
+  --ambient:
+    radial-gradient(120% 92% at 50% -12%, rgba(255, 255, 255, 0.85), transparent 52%),
+    radial-gradient(110% 85% at 50% 118%, rgba(150, 170, 198, 0.45), transparent 58%);
+
+  /* accents nudged deeper so they stay legible on bright glass */
+  --harvest: #04a86f;
+  --harvest-glow: rgba(4, 168, 111, 0.2);
+  --compare: #1f7ae0;
+  --compare-glow: rgba(31, 122, 224, 0.22);
+  --sow: #d85f12;
+  --sow-glow: rgba(216, 95, 18, 0.18);
+  --survey: #c8901a;
+  --survey-glow: rgba(200, 144, 26, 0.18);
+  --danger: #e0263f;
+  --danger-glow: rgba(224, 38, 63, 0.2);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -60,18 +121,16 @@ body {
   margin: 0;
 }
 body {
-  /* Ambient framing: warm orange from the left (Sources / Sow),
-     green-yellow from the right (Destinations / Harvest). */
-  background:
-    radial-gradient(90% 85% at -8% 45%, rgba(255, 122, 28, 0.2), transparent 58%),
-    radial-gradient(90% 85% at 108% 55%, rgba(150, 235, 95, 0.18), transparent 58%),
-    var(--canvas);
+  /* Atmospheric base wash — amber-from-below (dark) or cool highlight (light),
+     defined by --ambient per theme. */
+  background: var(--ambient), var(--canvas);
   background-attachment: fixed;
   color: var(--ink);
   font-size: 14px;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
   font-feature-settings: "calt", "rlig";
+  transition: background-color 0.4s ease, color 0.3s ease;
 }
 
 .app {
@@ -85,8 +144,7 @@ body {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  padding: var(--s3) var(--s5);
-  border-bottom: 1px solid var(--divider);
+  padding: var(--s4) var(--s5) var(--s3);
   -webkit-user-select: none;
   user-select: none;
 }
@@ -150,7 +208,7 @@ body {
   border-radius: var(--r-sm);
 }
 .winbtn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--glass-bg);
   color: var(--ink);
 }
 .winbtn.close:hover {
@@ -158,21 +216,41 @@ body {
   color: #fff;
 }
 
-/* hamburger menu */
+/* hamburger menu — frosted squircle, echoing the reference logo mark */
 .menu-btn {
-  font-size: 16px;
-  padding: 7px 11px;
+  font-size: 15px;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
+  border-radius: var(--r-lg);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
+  color: var(--body);
+}
+.menu-btn:hover {
+  background: var(--glass-bg-strong);
+  border-color: var(--glass-border);
+  color: var(--ink);
 }
 .menu-pop {
   position: absolute;
-  top: 40px;
+  top: 46px;
   left: 0;
   z-index: 40;
   min-width: 210px;
-  background: var(--surface-elevated);
-  border: 1px solid var(--hairline-strong);
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
   border-radius: var(--r-lg);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
   padding: 6px;
   display: flex;
   flex-direction: column;
@@ -187,7 +265,7 @@ body {
   color: var(--body);
 }
 .menu-pop button:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--glass-bg);
   color: var(--ink);
 }
 .menu-sep {
@@ -226,9 +304,12 @@ body {
   list-style: none;
   margin: 0;
   padding: var(--s3);
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-lg);
-  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-xl);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -348,9 +429,12 @@ body {
 /* center: dynamic panel (transfers / compare / sow / survey / progress) */
 .col-center {
   position: relative;
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-lg);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-xl);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
   padding: var(--s5);
   overflow: hidden;
 }
@@ -437,16 +521,18 @@ body {
 }
 .transfer-card {
   background: var(--surface-elevated);
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--glass-border);
   border-radius: var(--r-lg);
   padding: var(--s4);
-  /* faint top highlight = depth via luminance, not shadow */
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-  transition: border-color 0.18s, box-shadow 0.25s;
+  -webkit-backdrop-filter: var(--blur-sm);
+  backdrop-filter: var(--blur-sm);
+  box-shadow: var(--glass-highlight);
+  transition: border-color 0.18s, box-shadow 0.25s, transform 0.18s;
 }
 .transfer-card:hover {
   border-color: var(--hairline-strong);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 12px 40px -24px var(--mode-glow);
+  transform: translateY(-1px);
+  box-shadow: var(--glass-highlight), 0 16px 44px -22px var(--mode-glow);
 }
 .transfer-head {
   display: flex;
@@ -508,22 +594,107 @@ select option {
 }
 button {
   cursor: pointer;
-  border: 1px solid var(--hairline-strong);
-  background: var(--surface-elevated);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
   color: var(--ink);
   border-radius: var(--r-md);
   padding: 9px 14px;
   font-weight: 500;
-  transition: border-color 0.15s, background 0.15s, box-shadow 0.2s;
+  -webkit-backdrop-filter: var(--blur-sm);
+  backdrop-filter: var(--blur-sm);
+  box-shadow: var(--glass-highlight);
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.2s, transform 0.12s;
 }
 button:hover {
-  border-color: rgba(255, 255, 255, 0.22);
+  background: var(--glass-bg-strong);
+  border-color: var(--hairline-strong);
+}
+button:active {
+  transform: translateY(0.5px);
 }
 button.ghost {
   background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 button.ghost:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--glass-bg);
+  border-color: var(--glass-border);
+}
+
+/* ── segmented toggle (reference: week / month / year pill) ── */
+.segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: var(--pill);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
+}
+.segmented > button,
+.segmented > .seg {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-radius: var(--pill);
+  padding: 6px 15px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--mute);
+}
+.segmented > button:hover,
+.segmented > .seg:hover {
+  background: transparent;
+  color: var(--body);
+}
+.segmented > .active,
+.segmented > [aria-selected="true"] {
+  background: var(--glass-raised);
+  color: var(--ink);
+  box-shadow: 0 2px 9px -2px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+/* ── circular glass icon button (reference: sun/moon, logo) ── */
+.icon-btn {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--pill);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
+  color: var(--body);
+}
+.icon-btn:hover {
+  background: var(--glass-bg-strong);
+  color: var(--ink);
+}
+.icon-btn svg {
+  width: 17px;
+  height: 17px;
+}
+/* show the icon for the *current* theme on the toggle */
+.i-sun {
+  display: none;
+}
+:root[data-theme="light"] .i-sun {
+  display: block;
+}
+:root[data-theme="light"] .i-moon {
+  display: none;
 }
 button.danger {
   color: var(--danger);
@@ -578,8 +749,11 @@ button:disabled {
   align-items: center;
   gap: var(--s5);
   padding: var(--s4) var(--s5);
-  border-top: 1px solid var(--divider);
-  background: linear-gradient(0deg, rgba(255, 255, 255, 0.015), transparent);
+  border-top: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--glass-highlight);
 }
 .action-info {
   flex: 1;
@@ -634,8 +808,11 @@ button:disabled {
   width: 470px;
   max-width: 92vw;
   height: 100%;
-  background: var(--surface-card);
-  border-left: 1px solid var(--hairline-strong);
+  background: var(--glass-bg-strong);
+  border-left: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--glass-shadow);
   display: flex;
   flex-direction: column;
 }
@@ -646,9 +823,12 @@ button:disabled {
   position: relative;
   width: 380px;
   max-width: 90vw;
-  background: var(--surface-card);
-  border: 1px solid var(--hairline-strong);
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
   border-radius: var(--r-xl);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
   padding: 28px;
   text-align: center;
   overflow: hidden;
