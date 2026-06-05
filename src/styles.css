@@ -757,6 +757,37 @@ body {
   gap: var(--s2);
   flex-shrink: 0;
 }
+/* consolidated Sow header: the breadcrumb + Flatten/List + Done share the head
+   row; the redundant "Sow — folder" title and meta are hidden in the
+   visualiser modes, saving the separate toolbar row. */
+.center-head .sow-crumbs {
+  display: none;
+}
+.col-center.sow .center-head,
+.col-center.survey .center-head {
+  align-items: center;
+}
+.col-center.sow .sow-crumbs,
+.col-center.survey .sow-crumbs {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+.col-center.sow #center-title,
+.col-center.survey #center-title,
+.col-center.sow .center-meta,
+.col-center.survey .center-meta {
+  display: none;
+}
+.center-head-actions .sow-tools {
+  display: none;
+}
+.col-center.sow .center-head-actions .sow-tools,
+.col-center.survey .center-head-actions .sow-tools {
+  display: flex;
+}
 /* scrollable center view (Options shown inline in the center panel) */
 .center-scroll {
   position: relative;
