@@ -804,10 +804,10 @@ button.primary {
   gap: 9px;
   color: var(--ink);
   border: 1px solid var(--glass-border);
-  border-radius: var(--pill);
-  font-weight: 600;
+  border-radius: var(--r-lg);
+  font-weight: 640;
   letter-spacing: 0.2px;
-  padding: 12px 26px;
+  padding: 13px 22px;
   font-size: 15px;
   background: var(--glass-bg-strong);
   -webkit-backdrop-filter: var(--blur);
@@ -824,6 +824,16 @@ button.primary::before {
   background: var(--accent);
   box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 80%, transparent);
   transition: box-shadow 0.25s ease;
+}
+/* hero buttons with a leading icon (BS-4): show the glyph, drop the dot */
+button.primary svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  color: var(--accent);
+}
+button.primary:has(svg)::before {
+  display: none;
 }
 button.primary:hover:not(:disabled) {
   transform: translateY(-1px);
