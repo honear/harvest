@@ -75,7 +75,8 @@
 
 /* shared light-mode accent set (deeper so it reads on bright glass) */
 :root[data-theme="taupe"],
-:root[data-theme="blue-light"] {
+:root[data-theme="blue-light"],
+:root[data-theme="grass"] {
   color-scheme: light;
   --harvest: #04a86f;
   --harvest-glow: rgba(4, 168, 111, 0.2);
@@ -176,6 +177,75 @@
 
   --sow: #d85f12;
   --sow-glow: rgba(216, 95, 18, 0.18);
+}
+
+/* ── LG2 · vivid grass (light); Harvest = distinct emerald so it doesn't
+   blend into the grass-green surface ── */
+:root[data-theme="grass"] {
+  --canvas: #b6d2a4;
+  --surface-card: rgba(250, 255, 244, 0.5);
+  --surface-elevated: rgba(250, 255, 244, 0.64);
+  --surface-deep: rgba(250, 255, 244, 0.4);
+  --hairline: rgba(34, 64, 20, 0.15);
+  --hairline-strong: rgba(34, 64, 20, 0.24);
+  --divider: rgba(34, 64, 20, 0.1);
+
+  --ink: #15240d;
+  --body: rgba(21, 36, 13, 0.82);
+  --mute: #4d6440;
+  --ash: #6c855e;
+  --stone: #8aa07c;
+
+  --glass-bg: rgba(250, 255, 244, 0.5);
+  --glass-bg-strong: rgba(250, 255, 244, 0.74);
+  --glass-border: rgba(255, 255, 255, 0.72);
+  --glass-raised: rgba(255, 255, 255, 0.94);
+  --glass-shadow: 0 12px 32px -12px rgba(34, 74, 16, 0.26);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+
+  --ambient:
+    radial-gradient(125% 95% at 50% -16%, rgba(252, 255, 244, 0.9), transparent 50%),
+    radial-gradient(122% 92% at 50% 124%, rgba(98, 176, 72, 0.74), transparent 56%);
+
+  --sow: #d85f12;
+  --sow-glow: rgba(216, 95, 18, 0.18);
+  --harvest: #07995a;
+  --harvest-glow: rgba(7, 153, 90, 0.22);
+}
+
+/* ── DG2 · brighter green (dark); Harvest = bright spring-green to pop on the
+   forest surface ── */
+:root[data-theme="forest"] {
+  color-scheme: dark;
+  --canvas: #0c2114;
+  --surface-card: rgba(40, 70, 50, 0.5);
+  --surface-elevated: rgba(58, 94, 68, 0.62);
+  --surface-deep: rgba(20, 42, 28, 0.55);
+  --hairline: rgba(220, 250, 228, 0.12);
+  --hairline-strong: rgba(220, 250, 228, 0.2);
+  --divider: rgba(220, 250, 228, 0.07);
+
+  --ink: #eafaee;
+  --body: rgba(234, 250, 238, 0.82);
+  --mute: #a6c3ad;
+  --ash: #7d9a85;
+  --stone: #5f7a68;
+
+  --glass-bg: rgba(44, 76, 54, 0.52);
+  --glass-bg-strong: rgba(58, 94, 68, 0.7);
+  --glass-border: rgba(220, 250, 228, 0.16);
+  --glass-raised: rgba(96, 150, 112, 0.4);
+  --glass-shadow: 0 14px 38px -10px rgba(0, 20, 8, 0.6);
+  --glass-highlight: inset 0 1px 0 rgba(220, 250, 228, 0.14);
+
+  --ambient:
+    radial-gradient(135% 108% at 50% 128%, rgba(64, 210, 108, 0.56), rgba(32, 134, 70, 0.22) 36%, transparent 64%),
+    radial-gradient(80% 60% at 90% 2%, rgba(64, 112, 80, 0.5), transparent 52%);
+
+  --harvest: #27ff97;
+  --harvest-glow: rgba(39, 255, 151, 0.24);
+  --sow: #ff8a3d;
+  --sow-glow: rgba(255, 138, 61, 0.22);
 }
 
 * {

@@ -1234,7 +1234,7 @@ async function openDestinationFolder() {
 window.addEventListener("DOMContentLoaded", async () => {
   // Palette cycle — rotate through the named themes (persisted; the head
   // script applies the saved one pre-paint).
-  const THEMES = ["brown", "blue-dark", "taupe", "blue-light"];
+  const THEMES = ["brown", "blue-dark", "forest", "taupe", "blue-light", "grass"];
   const setTheme = (t: string) => {
     const name = THEMES.includes(t) ? t : THEMES[0];
     document.documentElement.dataset.theme = name;
