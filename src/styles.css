@@ -33,6 +33,8 @@
   --glass-highlight: inset 0 1px 0 rgba(255, 248, 240, 0.12);
   --blur: blur(22px) saturate(135%);
   --blur-sm: blur(13px) saturate(130%);
+  /* highlight colour for the status-text glimmer (light sheen on dark text) */
+  --glimmer: rgba(255, 255, 255, 0.92);
 
   /* atmospheric base wash painted on <body>, swapped per theme */
   --ambient:
@@ -78,6 +80,9 @@
 :root[data-theme="blue-light"],
 :root[data-theme="grass"] {
   color-scheme: light;
+  /* on light themes the muted text glints to a light silver (not pure white,
+     which would vanish into the light background) */
+  --glimmer: rgba(206, 215, 230, 1);
   --harvest: #04a86f;
   --harvest-glow: rgba(4, 168, 111, 0.2);
   --compare: #1f7ae0;
@@ -1079,6 +1084,42 @@ button:disabled {
 }
 .status.ok::before {
   box-shadow: 0 0 8px var(--harvest-glow);
+}
+/* metallic glimmer — a soft highlight sweeps left→right across the idle/info
+   status text (the ok/error states keep their solid semantic colour) */
+.status:not(.ok):not(.error) {
+  background-image: linear-gradient(
+    100deg,
+    var(--mute) 0%,
+    var(--mute) 40%,
+    var(--glimmer) 50%,
+    var(--mute) 60%,
+    var(--mute) 100%
+  );
+  background-size: 220% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: status-glimmer 5s ease-in-out infinite;
+}
+@keyframes status-glimmer {
+  0% {
+    background-position: 120% 0;
+  }
+  55%,
+  100% {
+    background-position: -20% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .status:not(.ok):not(.error) {
+    animation: none;
+    background: none;
+    -webkit-text-fill-color: var(--body);
+    color: var(--body);
+  }
 }
 .progress-track {
   height: 6px;
