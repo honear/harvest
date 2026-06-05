@@ -1232,11 +1232,18 @@ async function openDestinationFolder() {
 // ---- wire up --------------------------------------------------------------
 
 window.addEventListener("DOMContentLoaded", async () => {
-  // Light / dark theme toggle (persisted; head script applies it pre-paint).
+  // Palette cycle — rotate through the named themes (persisted; the head
+  // script applies the saved one pre-paint).
+  const THEMES = ["brown", "blue-dark", "taupe", "blue-light"];
+  const setTheme = (t: string) => {
+    const name = THEMES.includes(t) ? t : THEMES[0];
+    document.documentElement.dataset.theme = name;
+    localStorage.setItem("harvest-theme", name);
+  };
+  setTheme(localStorage.getItem("harvest-theme") || THEMES[0]);
   $("theme-toggle").onclick = () => {
-    const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
-    document.documentElement.dataset.theme = next;
-    localStorage.setItem("harvest-theme", next);
+    const i = THEMES.indexOf(document.documentElement.dataset.theme || THEMES[0]);
+    setTheme(THEMES[(i + 1) % THEMES.length]);
   };
 
   // Custom window controls (native chrome is disabled).

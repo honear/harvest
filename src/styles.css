@@ -8,35 +8,36 @@
    two themes are just two sets of the same variables. */
 :root {
   color-scheme: dark;
-  --canvas: #0d0b0a;
-  --surface-card: rgba(34, 30, 27, 0.46);
-  --surface-elevated: rgba(50, 44, 39, 0.58);
-  --surface-deep: rgba(20, 17, 15, 0.52);
-  --hairline: rgba(255, 248, 240, 0.08);
-  --hairline-strong: rgba(255, 248, 240, 0.17);
-  --divider: rgba(255, 248, 240, 0.06);
+  /* default theme = "brown" (warm milk-chocolate dark). Other named themes
+     override these tokens below; the palette button cycles between them. */
+  --canvas: #1c1611;
+  --surface-card: rgba(50, 41, 33, 0.5);
+  --surface-elevated: rgba(82, 67, 55, 0.58);
+  --surface-deep: rgba(42, 33, 27, 0.5);
+  --hairline: rgba(255, 245, 232, 0.09);
+  --hairline-strong: rgba(255, 245, 232, 0.18);
+  --divider: rgba(255, 245, 232, 0.06);
 
-  --ink: #f7f2ec;
-  --body: rgba(247, 242, 236, 0.82);
-  --mute: #b6aca1;
-  --ash: #8d857b;
-  --stone: #6a635b;
+  --ink: #f3ece2;
+  --body: rgba(243, 236, 226, 0.82);
+  --mute: #bcae9d;
+  --ash: #928678;
+  --stone: #6e6253;
 
   /* ── glassmorphism kit ── */
-  --glass-bg: rgba(42, 37, 33, 0.44);
-  --glass-bg-strong: rgba(54, 48, 42, 0.66);
-  --glass-border: rgba(255, 250, 244, 0.12);
-  --glass-raised: rgba(132, 122, 110, 0.32);
-  --glass-shadow: 0 12px 36px -10px rgba(0, 0, 0, 0.6);
-  --glass-highlight: inset 0 1px 0 rgba(255, 250, 244, 0.1);
+  --glass-bg: rgba(74, 61, 50, 0.46);
+  --glass-bg-strong: rgba(88, 72, 59, 0.66);
+  --glass-border: rgba(255, 248, 240, 0.13);
+  --glass-raised: rgba(132, 116, 98, 0.34);
+  --glass-shadow: 0 12px 36px -10px rgba(0, 0, 0, 0.55);
+  --glass-highlight: inset 0 1px 0 rgba(255, 248, 240, 0.12);
   --blur: blur(22px) saturate(135%);
   --blur-sm: blur(13px) saturate(130%);
 
   /* atmospheric base wash painted on <body>, swapped per theme */
   --ambient:
-    radial-gradient(135% 105% at 50% 128%, rgba(236, 134, 44, 0.66), rgba(176, 86, 22, 0.2) 34%, transparent 62%),
-    radial-gradient(70% 50% at 50% 116%, rgba(255, 180, 90, 0.4), transparent 50%),
-    radial-gradient(85% 65% at 90% 4%, rgba(74, 60, 48, 0.5), transparent 55%);
+    radial-gradient(135% 105% at 50% 128%, rgba(200, 144, 92, 0.55), rgba(130, 92, 56, 0.2) 34%, transparent 62%),
+    radial-gradient(85% 65% at 90% 4%, rgba(104, 86, 68, 0.5), transparent 55%);
 
   /* accent + glow pairs — used as small accents and atmospheric washes */
   --harvest: #11ff99;
@@ -72,46 +73,109 @@
   font-family: var(--font);
 }
 
-/* ── light theme: cool blue-grey glass over a soft overhead highlight ── */
-:root[data-theme="light"] {
+/* shared light-mode accent set (deeper so it reads on bright glass) */
+:root[data-theme="taupe"],
+:root[data-theme="blue-light"] {
   color-scheme: light;
-  --canvas: #ccd3db;
-  --surface-card: rgba(255, 255, 255, 0.5);
-  --surface-elevated: rgba(255, 255, 255, 0.66);
-  --surface-deep: rgba(255, 255, 255, 0.42);
-  --hairline: rgba(38, 52, 74, 0.1);
-  --hairline-strong: rgba(38, 52, 74, 0.2);
-  --divider: rgba(38, 52, 74, 0.08);
-
-  --ink: #1b2026;
-  --body: rgba(27, 32, 38, 0.82);
-  --mute: #56606e;
-  --ash: #79828f;
-  --stone: #9aa3af;
-
-  --glass-bg: rgba(255, 255, 255, 0.52);
-  --glass-bg-strong: rgba(255, 255, 255, 0.74);
-  --glass-border: rgba(255, 255, 255, 0.72);
-  --glass-raised: rgba(255, 255, 255, 0.96);
-  --glass-shadow: 0 12px 32px -12px rgba(40, 60, 90, 0.24);
-  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.9);
-
-  --ambient:
-    radial-gradient(125% 95% at 50% -16%, rgba(255, 255, 255, 0.95), transparent 50%),
-    radial-gradient(120% 92% at 50% 124%, rgba(132, 156, 190, 0.6), transparent 56%),
-    radial-gradient(80% 60% at 12% 8%, rgba(255, 255, 255, 0.4), transparent 50%);
-
-  /* accents nudged deeper so they stay legible on bright glass */
   --harvest: #04a86f;
   --harvest-glow: rgba(4, 168, 111, 0.2);
   --compare: #1f7ae0;
   --compare-glow: rgba(31, 122, 224, 0.22);
-  --sow: #d85f12;
-  --sow-glow: rgba(216, 95, 18, 0.18);
   --survey: #c8901a;
   --survey-glow: rgba(200, 144, 26, 0.18);
   --danger: #e0263f;
   --danger-glow: rgba(224, 38, 63, 0.2);
+}
+
+/* ── DB · bolder blue (dark): navy base, lighter blue glass for contrast ── */
+:root[data-theme="blue-dark"] {
+  color-scheme: dark;
+  --canvas: #0e1730;
+  --surface-card: rgba(40, 50, 78, 0.5);
+  --surface-elevated: rgba(58, 72, 110, 0.62);
+  --surface-deep: rgba(22, 30, 56, 0.55);
+  --hairline: rgba(225, 232, 255, 0.12);
+  --hairline-strong: rgba(225, 232, 255, 0.2);
+  --divider: rgba(225, 232, 255, 0.07);
+
+  --ink: #eef2fb;
+  --body: rgba(238, 242, 251, 0.82);
+  --mute: #aab3ca;
+  --ash: #7e88a4;
+  --stone: #5d6580;
+
+  --glass-bg: rgba(46, 58, 92, 0.52);
+  --glass-bg-strong: rgba(60, 74, 112, 0.7);
+  --glass-border: rgba(225, 232, 255, 0.16);
+  --glass-raised: rgba(96, 116, 164, 0.4);
+  --glass-shadow: 0 14px 38px -10px rgba(0, 6, 24, 0.6);
+  --glass-highlight: inset 0 1px 0 rgba(225, 232, 255, 0.14);
+
+  --ambient:
+    radial-gradient(135% 108% at 50% 128%, rgba(70, 128, 246, 0.58), rgba(40, 74, 170, 0.22) 36%, transparent 64%),
+    radial-gradient(80% 60% at 90% 2%, rgba(70, 86, 130, 0.5), transparent 52%);
+}
+
+/* ── L3 · warm taupe (light) ── */
+:root[data-theme="taupe"] {
+  --canvas: #dad1c4;
+  --surface-card: rgba(255, 252, 247, 0.5);
+  --surface-elevated: rgba(255, 252, 247, 0.66);
+  --surface-deep: rgba(255, 252, 247, 0.42);
+  --hairline: rgba(74, 58, 40, 0.12);
+  --hairline-strong: rgba(74, 58, 40, 0.2);
+  --divider: rgba(74, 58, 40, 0.08);
+
+  --ink: #241e17;
+  --body: rgba(36, 30, 23, 0.82);
+  --mute: #6f6354;
+  --ash: #8d8273;
+  --stone: #a89c8c;
+
+  --glass-bg: rgba(255, 252, 247, 0.52);
+  --glass-bg-strong: rgba(255, 252, 247, 0.74);
+  --glass-border: rgba(255, 255, 255, 0.72);
+  --glass-raised: rgba(255, 255, 255, 0.92);
+  --glass-shadow: 0 12px 32px -12px rgba(80, 60, 30, 0.2);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+
+  --ambient:
+    radial-gradient(125% 95% at 50% -16%, rgba(255, 250, 242, 0.92), transparent 50%),
+    radial-gradient(120% 92% at 50% 124%, rgba(198, 170, 134, 0.62), transparent 56%);
+
+  --sow: #c2611a;
+  --sow-glow: rgba(194, 97, 26, 0.18);
+}
+
+/* ── LB · bolder blue (light): blue-shifted greys (220°) ── */
+:root[data-theme="blue-light"] {
+  --canvas: #bcc9e2;
+  --surface-card: rgba(255, 255, 255, 0.5);
+  --surface-elevated: rgba(255, 255, 255, 0.64);
+  --surface-deep: rgba(255, 255, 255, 0.4);
+  --hairline: rgba(24, 44, 86, 0.14);
+  --hairline-strong: rgba(24, 44, 86, 0.22);
+  --divider: rgba(24, 44, 86, 0.09);
+
+  --ink: #141d2e;
+  --body: rgba(20, 29, 46, 0.82);
+  --mute: #4a5870;
+  --ash: #697892;
+  --stone: #8b97ad;
+
+  --glass-bg: rgba(255, 255, 255, 0.5);
+  --glass-bg-strong: rgba(255, 255, 255, 0.74);
+  --glass-border: rgba(255, 255, 255, 0.72);
+  --glass-raised: rgba(255, 255, 255, 0.94);
+  --glass-shadow: 0 12px 32px -12px rgba(30, 55, 110, 0.26);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+
+  --ambient:
+    radial-gradient(125% 95% at 50% -16%, rgba(255, 255, 255, 0.92), transparent 50%),
+    radial-gradient(122% 92% at 50% 124%, rgba(70, 104, 186, 0.74), transparent 56%);
+
+  --sow: #d85f12;
+  --sow-glow: rgba(216, 95, 18, 0.18);
 }
 
 * {
@@ -770,16 +834,6 @@ button.ghost:hover {
 .icon-btn svg {
   width: 17px;
   height: 17px;
-}
-/* show the icon for the *current* theme on the toggle */
-.i-sun {
-  display: none;
-}
-:root[data-theme="light"] .i-sun {
-  display: block;
-}
-:root[data-theme="light"] .i-moon {
-  display: none;
 }
 button.danger {
   color: var(--danger);
