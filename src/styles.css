@@ -474,9 +474,9 @@ body {
    sit high on the same baseline */
 .col-head {
   display: flex;
+  flex-direction: column;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--s3);
+  gap: 3px;
   margin-bottom: var(--s3);
 }
 .col-side .col-head h2 {
@@ -691,10 +691,9 @@ body {
   font-family: var(--mono);
   font-size: 11px;
   color: var(--ash);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex: none;
+  white-space: normal;
+  line-height: 1.45;
+  max-width: 100%;
 }
 .add-folder {
   margin-top: 10px;
@@ -1504,13 +1503,19 @@ button:disabled {
 .sow-tools {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   flex: none;
 }
+/* layout switch: fixed width so toggling Grid/List doesn't resize the button */
+#sow-layout {
+  min-width: 62px;
+  text-align: center;
+}
+/* flatten is a standalone toggle; its active tint follows the theme accent */
 #sow-flatten.active {
-  color: var(--sow, #ff801f);
-  border-color: rgba(255, 128, 31, 0.55);
-  background: rgba(255, 128, 31, 0.12);
+  color: var(--mode-accent);
+  border-color: color-mix(in srgb, var(--mode-accent) 50%, transparent);
+  background: color-mix(in srgb, var(--mode-accent) 14%, transparent);
 }
 
 /* list view (WizTree-style) */
@@ -1656,8 +1661,8 @@ button:disabled {
 }
 /* folder tiles: a darker, more-transparent frosted-glass layer + folder icon */
 .tile.dir {
-  background: rgba(10, 12, 16, 0.32);
-  border-color: var(--hairline-strong);
+  background: color-mix(in srgb, var(--mode-accent) 24%, transparent);
+  border-color: color-mix(in srgb, var(--mode-accent) 42%, var(--hairline-strong));
   backdrop-filter: blur(7px);
 }
 .tile-folder-icon {
@@ -1666,8 +1671,8 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--ink);
-  opacity: 0.3;
+  color: var(--mode-accent);
+  opacity: 0.55;
   z-index: 0;
   pointer-events: none;
 }
