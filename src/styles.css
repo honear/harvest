@@ -1684,13 +1684,14 @@ button:disabled {
   border-radius: 4px;
   padding: 5px 7px;
   cursor: pointer;
-  transition: outline 0.1s, opacity 0.15s;
+  transition: outline 0.1s, opacity 0.15s, filter 0.12s;
   /* draw outlines INSIDE the tile so edge tiles aren't clipped by the panel */
   outline: 0 solid transparent;
   outline-offset: -2px;
 }
 .tile:hover {
-  outline: 2px solid color-mix(in srgb, var(--tile-color, var(--ink)), black 40%);
+  outline: 2px solid color-mix(in srgb, var(--tile-color, var(--ink)), white 42%);
+  filter: brightness(1.14) saturate(1.4);
   z-index: 2;
 }
 /* folder tiles: a darker, more-transparent frosted-glass layer + folder icon */
