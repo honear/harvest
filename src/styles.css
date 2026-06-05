@@ -1628,6 +1628,10 @@ button:disabled {
   color: var(--sow);
   padding: 2px 4px;
   font-size: 11.5px;
+  border-radius: 0;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 .sow-crumbs button:hover {
   text-decoration: underline;

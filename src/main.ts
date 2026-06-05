@@ -470,11 +470,11 @@ function extColor(ext: string): string {
   const video = ["mov", "mp4", "mxf", "avi", "mts", "m4v", "braw", "r3d", "mkv", "wmv"];
   const audio = ["wav", "aif", "aiff", "mp3", "flac", "m4a", "aac"];
   const image = ["jpg", "jpeg", "png", "cr3", "cr2", "arw", "dng", "nef", "tif", "tiff", "heic", "raf", "gpr", "gif"];
-  if (video.includes(ext)) return "#3b9eff";
-  if (audio.includes(ext)) return "#11ff99";
-  if (image.includes(ext)) return "#ff801f";
-  if (ext) return "#ffc53d";
-  return "#7b8186";
+  if (video.includes(ext)) return "#5b9be4";
+  if (audio.includes(ext)) return "#45b98c";
+  if (image.includes(ext)) return "#e58b4a";
+  if (ext) return "#d6b34d";
+  return "#8f99a5";
 }
 
 function renderCrumbs() {
