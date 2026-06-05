@@ -1690,7 +1690,7 @@ button:disabled {
   outline-offset: -2px;
 }
 .tile:hover {
-  outline: 2px solid var(--ink);
+  outline: 2px solid color-mix(in srgb, var(--tile-color, var(--ink)), black 40%);
   z-index: 2;
 }
 /* folder tiles: a darker, more-transparent frosted-glass layer + folder icon */

@@ -640,7 +640,8 @@ function renderTreemap() {
     div.style.width = `${Math.max(0, p.w - 1)}px`;
     div.style.height = `${Math.max(0, p.h - 1)}px`;
     // Folders get a darker frosted-glass surface + a centered folder icon;
-    // files are solid type-color.
+    // files are solid type-color. --tile-color drives the hover outline.
+    div.style.setProperty("--tile-color", e.isDir ? "var(--mode-accent)" : extColor(e.ext));
     if (!e.isDir) div.style.background = extColor(e.ext);
     div.innerHTML = `<div class="tile-name">${e.name}${e.isDir ? "/" : ""}</div><div class="tile-size">${humanBytes(e.size)}</div>`;
     // category watermark icon — only when the tile has room for it
