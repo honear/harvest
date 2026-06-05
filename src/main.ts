@@ -171,9 +171,9 @@ function renderColumn(role: "source" | "dest") {
     li.className = "drop-add-big";
     li.setAttribute("role", "button");
     li.tabIndex = 0;
-    li.innerHTML = `<div class="plus"><svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><path d="M13 4.5 V21.5 M4.5 13 H21.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></div><div class="label">Add a ${
+    li.innerHTML = `<div class="plus"><svg width="22" height="22" viewBox="0 0 26 26" aria-hidden="true"><path d="M13 4.5 V21.5 M4.5 13 H21.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></div><div class="label"><b>Drop a ${
       role === "source" ? "source" : "destination"
-    }</div>`;
+    }</b><br>or click to browse</div>`;
     const act = () => pickAndAdd(role);
     li.onclick = act;
     li.onkeydown = (e) => {
@@ -187,6 +187,9 @@ function renderColumn(role: "source" | "dest") {
     items.forEach((path, i) => {
       const li = document.createElement("li");
       li.className = "drop-item";
+      const icon = document.createElement("div");
+      icon.className = "drop-item-icon";
+      icon.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`;
       const info = document.createElement("div");
       info.className = "drop-item-info";
       const title = document.createElement("div");
@@ -198,10 +201,16 @@ function renderColumn(role: "source" | "dest") {
       info.append(title, sub);
       const ci = infoCache[path];
       if (ci) {
-        const stats = document.createElement("div");
-        stats.className = "drop-item-stats";
-        stats.textContent = `${ci.files.toLocaleString()} files · ${humanBytes(ci.bytes)}`;
-        info.appendChild(stats);
+        const pills = document.createElement("div");
+        pills.className = "drop-item-pills";
+        const p1 = document.createElement("span");
+        p1.className = "stat-pill";
+        p1.textContent = `${ci.files.toLocaleString()} files`;
+        const p2 = document.createElement("span");
+        p2.className = "stat-pill";
+        p2.textContent = humanBytes(ci.bytes);
+        pills.append(p1, p2);
+        info.appendChild(pills);
       }
       const rm = document.createElement("button");
       rm.className = "ghost danger remove";
@@ -213,7 +222,7 @@ function renderColumn(role: "source" | "dest") {
         renderColumn(role);
         refreshActionState();
       };
-      li.append(info, rm);
+      li.append(icon, info, rm);
       el.appendChild(li);
     });
     const add = document.createElement("li");

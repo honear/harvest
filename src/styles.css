@@ -355,40 +355,49 @@ body {
   border-color: var(--mode-accent);
   box-shadow: inset 0 60px 80px -60px var(--mode-glow);
 }
-/* empty-state: big clickable "+" to add a folder */
+/* empty-state: a dashed full-panel drop zone (EZ-4) */
 .drop-add-big {
-  margin: auto;
+  flex: 1;
+  align-self: stretch;
+  margin: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: var(--s3);
   color: var(--ash);
   cursor: pointer;
   padding: var(--s4);
+  border: 1.5px dashed color-mix(in srgb, var(--mode-accent) 30%, var(--hairline-strong));
   border-radius: var(--r-lg);
-  transition: color 0.15s;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.drop-add-big:hover {
+  border-color: var(--mode-accent);
+  background: color-mix(in srgb, var(--mode-accent) 7%, transparent);
 }
 .drop-add-big .plus {
-  width: 64px;
-  height: 64px;
+  width: 48px;
+  height: 48px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 34px;
-  font-weight: 300;
-  color: var(--ink);
-  border: 1.5px dashed var(--hairline-strong);
+  color: var(--mode-accent);
+  background: color-mix(in srgb, var(--mode-accent) 14%, transparent);
   border-radius: var(--pill);
-  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  transition: transform 0.15s;
 }
 .drop-add-big:hover .plus {
-  border-color: var(--mode-accent);
-  color: var(--mode-accent);
-  background: rgba(255, 255, 255, 0.03);
+  transform: translateY(-2px);
 }
 .drop-add-big .label {
   font-size: 12.5px;
   text-align: center;
+  line-height: 1.5;
+}
+.drop-add-big .label b {
+  color: var(--body);
+  font-weight: 600;
 }
 /* trailing "+ add" tile when the list already has items */
 .drop-add {
@@ -410,12 +419,22 @@ body {
 }
 .drop-item {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 10px;
   background: var(--surface-elevated);
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--glass-border);
   border-radius: var(--r-md);
-  padding: 10px 12px;
+  padding: 10px 11px;
+}
+.drop-item-icon {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--mode-accent);
+  background: color-mix(in srgb, var(--mode-accent) 16%, transparent);
 }
 .drop-item-info {
   flex: 1;
@@ -425,20 +444,32 @@ body {
   font-weight: 600;
   font-size: 13px;
   color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .drop-item-path {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--ash);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.drop-item-stats {
+.drop-item-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 7px;
+}
+.stat-pill {
   font-family: var(--mono);
-  font-size: 11px;
-  color: var(--body);
-  margin-top: 3px;
+  font-size: 10px;
+  color: var(--mute);
+  background: var(--surface-deep);
+  border: 1px solid var(--hairline);
+  padding: 2px 8px;
+  border-radius: var(--pill);
 }
 .col-info {
   font-family: var(--mono);
@@ -487,10 +518,11 @@ body {
 .center-head h2 {
   margin: 0;
   text-align: left;
-  font-size: 19px;
-  font-weight: 720;
-  letter-spacing: -0.4px;
-  color: var(--ink);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  font-weight: 600;
+  color: var(--ash);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -604,11 +636,13 @@ button {
 }
 input,
 select {
-  background: var(--surface-deep);
-  border: 1px solid var(--hairline-strong);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
   border-radius: var(--r-md);
   padding: 9px 11px;
   width: 100%;
+  -webkit-backdrop-filter: var(--blur-sm);
+  backdrop-filter: var(--blur-sm);
 }
 input::placeholder {
   color: var(--stone, #55585b);
@@ -831,8 +865,25 @@ button:disabled {
 .status.ok {
   color: var(--harvest);
 }
+.status.ok,
+.status.error {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.status.ok::before,
+.status.error::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.status.ok::before {
+  box-shadow: 0 0 8px var(--harvest-glow);
+}
 .progress-track {
-  height: 8px;
+  height: 6px;
   margin-top: 8px;
   background: var(--surface-elevated);
   border: 1px solid var(--hairline);
@@ -842,8 +893,9 @@ button:disabled {
 .progress-fill {
   height: 100%;
   width: 0;
-  background: var(--harvest);
-  box-shadow: 0 0 18px var(--harvest-glow);
+  border-radius: var(--pill);
+  background: linear-gradient(90deg, var(--mode-accent), color-mix(in srgb, var(--mode-accent) 62%, #fff));
+  box-shadow: 0 0 16px color-mix(in srgb, var(--mode-accent) 60%, transparent);
   transition: width 0.1s linear;
 }
 .progress-current {
@@ -884,8 +936,8 @@ button:disabled {
   position: relative;
   width: 380px;
   max-width: 90vw;
-  background: var(--glass-bg-strong);
-  border: 1px solid var(--glass-border);
+  background: var(--surface-elevated);
+  border: 1px solid var(--hairline-strong);
   border-radius: var(--r-xl);
   -webkit-backdrop-filter: var(--blur);
   backdrop-filter: var(--blur);
@@ -894,12 +946,13 @@ button:disabled {
   text-align: center;
   overflow: hidden;
 }
+/* accent glow rises from the bottom (DG-2 body + DG-1 glow, flipped) */
 .dialog::before {
   content: "";
   position: absolute;
-  inset: 0 0 auto 0;
-  height: 160px;
-  background: radial-gradient(120% 120% at 50% -30%, var(--mode-glow), transparent 60%);
+  inset: auto 0 0 0;
+  height: 170px;
+  background: radial-gradient(120% 120% at 50% 135%, var(--mode-glow), transparent 62%);
   pointer-events: none;
 }
 .dialog > * {
