@@ -330,25 +330,38 @@ body {
 }
 
 /* custom window controls (native chrome is disabled) */
+/* WC-3 · the three window controls grouped in one frosted capsule */
 .window-controls {
   display: flex;
+  align-items: center;
   gap: 2px;
   margin-left: var(--s2);
+  padding: 3px;
+  border-radius: var(--pill);
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--glass-highlight);
 }
 .winbtn {
-  width: 30px;
-  height: 26px;
+  width: 32px;
+  height: 24px;
   padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  line-height: 0;
   border: none;
   background: transparent;
   color: var(--mute);
-  border-radius: var(--r-sm);
+  border-radius: var(--pill);
+}
+.winbtn svg {
+  display: block;
 }
 .winbtn:hover {
-  background: var(--glass-bg);
+  background: var(--glass-raised);
   color: var(--ink);
 }
 .winbtn.close:hover {
@@ -908,6 +921,15 @@ button.ghost:hover {
 .icon-btn svg {
   width: 17px;
   height: 17px;
+  display: block;
+}
+/* the palette button mirrors the window-control capsule: a single frosted pill
+   the same height, sitting just left of the controls, icon centered */
+#theme-toggle.icon-btn {
+  width: 40px;
+  height: 32px;
+  background: var(--glass-bg-strong);
+  box-shadow: var(--glass-highlight);
 }
 button.danger {
   color: var(--danger);
