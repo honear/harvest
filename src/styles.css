@@ -467,18 +467,17 @@ body {
   -webkit-backdrop-filter: var(--blur);
   backdrop-filter: var(--blur);
   box-shadow: var(--glass-shadow), var(--glass-highlight);
-  padding: var(--s5);
+  padding: var(--s4);
   overflow: hidden;
 }
-/* head row shared geometry with .center-head so all three section titles
-   land on the same baseline */
+/* head row shares geometry with .center-head so all three section titles
+   sit high on the same baseline */
 .col-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: var(--s3);
-  margin-bottom: var(--s4);
-  min-height: 28px;
+  margin-bottom: var(--s3);
 }
 .col-side .col-head h2 {
   text-align: left;
@@ -672,7 +671,7 @@ body {
   -webkit-backdrop-filter: var(--blur);
   backdrop-filter: var(--blur);
   box-shadow: var(--glass-shadow), var(--glass-highlight);
-  padding: var(--s5);
+  padding: var(--s4) var(--s5) var(--s5);
   overflow: hidden;
 }
 /* soft ambient wash, tinted by the active mode — kept gentle for harmony */
@@ -689,11 +688,10 @@ body {
 .center-head {
   position: relative;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: var(--s3);
-  margin-bottom: var(--s4);
-  min-height: 28px;
+  margin-bottom: var(--s3);
 }
 .center-head h2 {
   margin: 0;
@@ -992,6 +990,13 @@ button.primary svg {
 }
 button.primary:has(svg)::before {
   display: none;
+}
+/* balance the leading icon with an equal-width trailing spacer so the LABEL
+   (not the icon+label group) is optically centered in the wide hero buttons */
+button.primary:has(svg)::after {
+  content: "";
+  width: 18px;
+  flex: none;
 }
 button.primary:hover:not(:disabled) {
   transform: translateY(-1px);
