@@ -714,68 +714,45 @@ button.remove {
   font-size: 13px;
 }
 /* ── hero action buttons (Sow / Harvest) — the program's most important
-   controls. Layered: a glossy accent gradient, an inner top highlight + bottom
-   shade for dimensionality, and a colored glow that blooms on hover. A shine
-   sweeps across on hover; the button lifts on hover and presses on click.
-   Per-button accent is set via local vars so both share one recipe. ── */
+   controls, but tied to the frosted-glass language rather than a flat fill.
+   The accent comes through as the label colour, a faint surface wash, a tinted
+   hairline, and a soft glow beneath — present and identifiable, never garish.
+   Per-button accent is set via a local var so both share one recipe. ── */
 button.primary {
   --accent: var(--harvest);
-  --accent-ink: #00140c;
   position: relative;
-  isolation: isolate;
-  overflow: hidden;
-  color: var(--accent-ink);
-  border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--glass-border));
   border-radius: var(--pill);
-  font-weight: 660;
+  font-weight: 640;
   letter-spacing: 0.2px;
   padding: 12px 30px;
   font-size: 15px;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--accent) 86%, #fff),
-    var(--accent) 46%,
-    color-mix(in srgb, var(--accent) 80%, #000)
-  );
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    inset 0 -11px 18px -12px rgba(0, 0, 0, 0.5),
-    0 6px 18px -8px color-mix(in srgb, var(--accent) 60%, transparent),
-    0 0 34px -10px color-mix(in srgb, var(--accent) 70%, transparent);
-  transition: transform 0.18s cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 0.28s ease, filter 0.2s;
-}
-/* sweeping shine — above the gradient, below the label (z-index:-1 + isolate) */
-button.primary::before {
-  content: "";
-  position: absolute;
-  inset: -1px;
-  z-index: -1;
-  background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.5) 50%, transparent 65%);
-  transform: translateX(-130%);
-  transition: transform 0.7s cubic-bezier(0.3, 0.5, 0.2, 1);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 16%, transparent), color-mix(in srgb, var(--accent) 7%, transparent)),
+    var(--glass-bg-strong);
+  box-shadow: var(--glass-highlight), 0 8px 22px -12px color-mix(in srgb, var(--accent) 55%, transparent);
+  transition: transform 0.18s cubic-bezier(0.2, 0.7, 0.2, 1), background 0.22s ease, border-color 0.2s ease, box-shadow 0.28s ease;
 }
 button.primary:hover:not(:disabled) {
-  transform: translateY(-2px);
-  filter: brightness(1.05) saturate(1.04);
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 58%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 26%, transparent), color-mix(in srgb, var(--accent) 12%, transparent)),
+    var(--glass-bg-strong);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.65),
-    inset 0 -11px 18px -12px rgba(0, 0, 0, 0.5),
-    0 12px 30px -8px color-mix(in srgb, var(--accent) 65%, transparent),
-    0 0 56px -8px color-mix(in srgb, var(--accent) 80%, transparent);
-}
-button.primary:hover:not(:disabled)::before {
-  transform: translateX(130%);
+    var(--glass-highlight),
+    0 12px 28px -12px color-mix(in srgb, var(--accent) 60%, transparent),
+    0 0 30px -12px color-mix(in srgb, var(--accent) 70%, transparent);
 }
 button.primary:active:not(:disabled) {
   transform: translateY(0);
-  filter: brightness(0.97);
   transition-duration: 0.05s;
 }
 button.primary.sow {
   --accent: var(--sow);
-  --accent-ink: #1c0c00;
 }
 button.small {
   padding: 5px 12px;
