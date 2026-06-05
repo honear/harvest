@@ -115,6 +115,10 @@
   --ambient:
     radial-gradient(135% 108% at 50% 128%, rgba(70, 128, 246, 0.58), rgba(40, 74, 170, 0.22) 36%, transparent 64%),
     radial-gradient(80% 60% at 90% 2%, rgba(70, 86, 130, 0.5), transparent 52%);
+
+  /* Sow leans sky-blue here so it doesn't clash warm-orange on the cool base */
+  --sow: #56c4fb;
+  --sow-glow: rgba(86, 196, 251, 0.24);
 }
 
 /* ── L3 · warm taupe (light) ── */
@@ -175,8 +179,8 @@
     radial-gradient(125% 95% at 50% -16%, rgba(255, 255, 255, 0.92), transparent 50%),
     radial-gradient(122% 92% at 50% 124%, rgba(70, 104, 186, 0.74), transparent 56%);
 
-  --sow: #d85f12;
-  --sow-glow: rgba(216, 95, 18, 0.18);
+  --sow: #0e9ddb;
+  --sow-glow: rgba(14, 157, 219, 0.2);
 }
 
 /* ── LG2 · vivid grass (light); Harvest = distinct emerald so it doesn't
@@ -207,8 +211,8 @@
     radial-gradient(125% 95% at 50% -16%, rgba(252, 255, 244, 0.9), transparent 50%),
     radial-gradient(122% 92% at 50% 124%, rgba(98, 176, 72, 0.74), transparent 56%);
 
-  --sow: #d85f12;
-  --sow-glow: rgba(216, 95, 18, 0.18);
+  --sow: #0e9c87;
+  --sow-glow: rgba(14, 156, 135, 0.2);
   --harvest: #07995a;
   --harvest-glow: rgba(7, 153, 90, 0.22);
 }
@@ -244,8 +248,8 @@
 
   --harvest: #27ff97;
   --harvest-glow: rgba(39, 255, 151, 0.24);
-  --sow: #ff8a3d;
-  --sow-glow: rgba(255, 138, 61, 0.22);
+  --sow: #2fe0c4;
+  --sow-glow: rgba(47, 224, 196, 0.24);
 }
 
 * {
