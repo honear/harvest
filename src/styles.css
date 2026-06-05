@@ -526,14 +526,24 @@ body {
   box-shadow: var(--glass-highlight), inset 0 0 70px -16px var(--mode-glow), 0 0 0 1px var(--mode-accent);
 }
 .col-side.drag-over .drop-add-big {
-  border-color: var(--mode-accent);
-  background: color-mix(in srgb, var(--mode-accent) 10%, transparent);
+  background: radial-gradient(120% 80% at 50% 118%, color-mix(in srgb, var(--mode-accent) 34%, transparent), transparent 66%);
 }
-/* empty-state: a dashed full-panel drop zone (EZ-4) */
+.col-side.drag-over .drop-add-big::before {
+  opacity: 1;
+}
+/* registered angle so the conic border can animate smoothly */
+@property --ang {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+/* empty-state (explore V11): a soft accent glow rising from the bottom + a
+   faint accent highlight that slowly travels around the rounded border */
 .drop-add-big {
   flex: 1;
   align-self: stretch;
   margin: 0;
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -542,13 +552,41 @@ body {
   color: var(--ash);
   cursor: pointer;
   padding: var(--s4);
-  border: 1.5px dashed color-mix(in srgb, var(--mode-accent) 30%, var(--hairline-strong));
   border-radius: var(--r-lg);
-  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  overflow: hidden;
+  background: radial-gradient(120% 80% at 50% 118%, color-mix(in srgb, var(--mode-accent) 20%, transparent), transparent 70%);
+  transition: color 0.15s, background 0.2s;
+}
+.drop-add-big::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-lg);
+  padding: 1.6px;
+  background: conic-gradient(from var(--ang), transparent 0%, var(--mode-accent) 18%, transparent 38%, transparent 62%, var(--mode-accent) 82%, transparent 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0.5;
+  pointer-events: none;
+  animation: dz-spin 6s linear infinite;
+}
+@keyframes dz-spin {
+  to {
+    --ang: 360deg;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .drop-add-big::before {
+    animation: none;
+  }
 }
 .drop-add-big:hover {
-  border-color: var(--mode-accent);
-  background: color-mix(in srgb, var(--mode-accent) 7%, transparent);
+  background: radial-gradient(120% 80% at 50% 118%, color-mix(in srgb, var(--mode-accent) 30%, transparent), transparent 70%);
+}
+.drop-add-big:hover::before {
+  opacity: 0.85;
 }
 .drop-add-big .plus {
   width: 48px;
