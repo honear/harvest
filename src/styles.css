@@ -467,16 +467,18 @@ body {
   -webkit-backdrop-filter: var(--blur);
   backdrop-filter: var(--blur);
   box-shadow: var(--glass-shadow), var(--glass-highlight);
-  padding: var(--s4);
+  padding: var(--s5);
   overflow: hidden;
 }
+/* head row shared geometry with .center-head so all three section titles
+   land on the same baseline */
 .col-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: var(--s3);
-  margin-bottom: var(--s3);
-  min-height: 22px;
+  margin-bottom: var(--s4);
+  min-height: 28px;
 }
 .col-side .col-head h2 {
   text-align: left;
@@ -691,6 +693,7 @@ body {
   justify-content: space-between;
   gap: var(--s3);
   margin-bottom: var(--s4);
+  min-height: 28px;
 }
 .center-head h2 {
   margin: 0;
