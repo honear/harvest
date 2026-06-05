@@ -355,6 +355,23 @@ body {
   border-color: var(--mode-accent);
   box-shadow: inset 0 60px 80px -60px var(--mode-glow);
 }
+/* the glass panel carries the per-side accent + the drag-over highlight */
+.col-side[data-role="source"] {
+  --mode-accent: var(--sow);
+  --mode-glow: var(--sow-glow);
+}
+.col-side[data-role="dest"] {
+  --mode-accent: var(--harvest);
+  --mode-glow: var(--harvest-glow);
+}
+.col-side.drag-over {
+  border-color: var(--mode-accent);
+  box-shadow: var(--glass-highlight), inset 0 0 70px -16px var(--mode-glow), 0 0 0 1px var(--mode-accent);
+}
+.col-side.drag-over .drop-add-big {
+  border-color: var(--mode-accent);
+  background: color-mix(in srgb, var(--mode-accent) 10%, transparent);
+}
 /* empty-state: a dashed full-panel drop zone (EZ-4) */
 .drop-add-big {
   flex: 1;
@@ -404,18 +421,21 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--s2);
-  padding: var(--s2);
+  gap: 7px;
+  padding: 10px;
   font-size: 12.5px;
-  color: var(--ash);
-  border: 1px dashed var(--hairline-strong);
+  font-weight: 500;
+  color: var(--mute);
+  border: 1.5px dashed color-mix(in srgb, var(--mode-accent) 28%, var(--hairline-strong));
   border-radius: var(--r-md);
   cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
+  flex: none;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
 .drop-add:hover {
   color: var(--mode-accent);
   border-color: var(--mode-accent);
+  background: color-mix(in srgb, var(--mode-accent) 8%, transparent);
 }
 .drop-item {
   display: flex;
@@ -459,17 +479,18 @@ body {
 .drop-item-pills {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 4px;
   margin-top: 7px;
 }
 .stat-pill {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 9.5px;
   color: var(--mute);
   background: var(--surface-deep);
   border: 1px solid var(--hairline);
-  padding: 2px 8px;
+  padding: 2px 6px;
   border-radius: var(--pill);
+  white-space: nowrap;
 }
 .col-info {
   font-family: var(--mono);

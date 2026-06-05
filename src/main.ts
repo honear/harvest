@@ -11,6 +11,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
 
@@ -205,11 +206,8 @@ function renderColumn(role: "source" | "dest") {
         pills.className = "drop-item-pills";
         const p1 = document.createElement("span");
         p1.className = "stat-pill";
-        p1.textContent = `${ci.files.toLocaleString()} files`;
-        const p2 = document.createElement("span");
-        p2.className = "stat-pill";
-        p2.textContent = humanBytes(ci.bytes);
-        pills.append(p1, p2);
+        p1.textContent = `${ci.files.toLocaleString()} files · ${humanBytes(ci.bytes)}`;
+        pills.append(p1);
         info.appendChild(pills);
       }
       const rm = document.createElement("button");
@@ -229,7 +227,7 @@ function renderColumn(role: "source" | "dest") {
     add.className = "drop-add";
     add.setAttribute("role", "button");
     add.tabIndex = 0;
-    add.textContent = "+  Add folder";
+    add.textContent = `+  Add ${role === "source" ? "source" : "destination"}`;
     const act = () => pickAndAdd(role);
     add.onclick = act;
     add.onkeydown = (e) => {
@@ -1247,6 +1245,42 @@ window.addEventListener("DOMContentLoaded", async () => {
     $("win-min").onclick = () => appWindow.minimize();
     $("win-max").onclick = () => appWindow.toggleMaximize();
     $("win-close").onclick = () => appWindow.close();
+  } catch {
+    /* not in Tauri (browser preview) */
+  }
+
+  // Native file/folder drag-and-drop onto the Sources / Destinations panels.
+  try {
+    let dragRole: "source" | "dest" | null = null;
+    const roleAt = (x: number, y: number): "source" | "dest" | null => {
+      const dpr = window.devicePixelRatio || 1;
+      const hit = document.elementFromPoint(x / dpr, y / dpr) as HTMLElement | null;
+      const host = hit?.closest("[data-role]") as HTMLElement | null;
+      const r = host?.getAttribute("data-role");
+      return r === "source" || r === "dest" ? r : null;
+    };
+    const panel = (r: "source" | "dest") => document.querySelector(`.col-side[data-role="${r}"]`);
+    const clearDrag = () => {
+      document.querySelectorAll(".col-side.drag-over").forEach((e) => e.classList.remove("drag-over"));
+      dragRole = null;
+    };
+    getCurrentWebview().onDragDropEvent((ev) => {
+      const p = ev.payload;
+      if (p.type === "over") {
+        const r = roleAt(p.position.x, p.position.y);
+        if (r !== dragRole) {
+          clearDrag();
+          dragRole = r;
+          if (r) panel(r)?.classList.add("drag-over");
+        }
+      } else if (p.type === "drop") {
+        const r = roleAt(p.position.x, p.position.y) ?? dragRole;
+        clearDrag();
+        if (r) for (const path of p.paths) addPath(r, path);
+      } else {
+        clearDrag();
+      }
+    });
   } catch {
     /* not in Tauri (browser preview) */
   }
