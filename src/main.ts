@@ -172,7 +172,7 @@ function renderColumn(role: "source" | "dest") {
     li.className = "drop-add-big";
     li.setAttribute("role", "button");
     li.tabIndex = 0;
-    li.innerHTML = `<div class="plus"><svg width="22" height="22" viewBox="0 0 26 26" aria-hidden="true"><path d="M13 4.5 V21.5 M4.5 13 H21.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></div><div class="label"><b>Drop a ${
+    li.innerHTML = `<div class="plus"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div><div class="label"><b>Drop a ${
       role === "source" ? "source" : "destination"
     }</b><br>or click to browse</div>`;
     const act = () => pickAndAdd(role);
