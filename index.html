@@ -57,10 +57,12 @@
 
       <!-- three columns -->
       <main class="columns">
-        <section class="col">
-          <h2>Sources</h2>
+        <section class="col col-side" data-role="source">
+          <div class="col-head">
+            <h2>Sources</h2>
+            <span id="source-info" class="col-info muted"></span>
+          </div>
           <ul id="source-list" class="droplist" data-role="source"></ul>
-          <div id="source-info" class="col-info"></div>
         </section>
 
         <section class="col col-center" id="center-panel">
@@ -140,10 +142,12 @@
           </div>
         </section>
 
-        <section class="col">
-          <h2>Destinations</h2>
+        <section class="col col-side" data-role="dest">
+          <div class="col-head">
+            <h2>Destinations</h2>
+            <span id="dest-info" class="col-info muted"></span>
+          </div>
           <ul id="dest-list" class="droplist" data-role="dest"></ul>
-          <div id="dest-info" class="col-info"></div>
         </section>
       </main>
 

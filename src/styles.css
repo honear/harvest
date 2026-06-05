@@ -300,23 +300,47 @@ body {
   font-weight: 600;
 }
 
+/* side panels (Sources / Destinations) — a glass panel matching the center
+   section, with the title moved inside a head row so all three sections share
+   the same height and top/bottom alignment. */
+.col-side {
+  position: relative;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-xl);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
+  padding: var(--s4);
+  overflow: hidden;
+}
+.col-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3);
+  margin-bottom: var(--s3);
+  min-height: 22px;
+}
+.col-side .col-head h2 {
+  text-align: left;
+  margin: 0;
+}
+
 /* drop columns */
+/* inner scroll area inside the .col-side glass panel (the panel carries the
+   glass; the list just scrolls). */
 .droplist {
   flex: 1;
   list-style: none;
   margin: 0;
-  padding: var(--s3);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--r-xl);
-  background: var(--glass-bg);
-  -webkit-backdrop-filter: var(--blur);
-  backdrop-filter: var(--blur);
-  box-shadow: var(--glass-shadow), var(--glass-highlight);
+  padding: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: var(--s2);
-  transition: border-color 0.2s, box-shadow 0.25s;
+  border-radius: var(--r-md);
+  transition: box-shadow 0.25s;
 }
 /* per-side accent: Sources = orange (Sow), Destinations = green (Harvest) */
 .droplist[data-role="source"] {
@@ -417,12 +441,13 @@ body {
   margin-top: 3px;
 }
 .col-info {
-  margin-top: 10px;
   font-family: var(--mono);
   font-size: 11px;
   color: var(--ash);
-  text-align: center;
-  min-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: none;
 }
 .add-folder {
   margin-top: 10px;
