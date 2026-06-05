@@ -1639,9 +1639,8 @@ button:disabled {
   position: relative;
   flex: 1;
   min-height: 0;
-  border-radius: var(--r-md);
   overflow: hidden;
-  background: var(--surface-deep);
+  background: transparent;
 }
 .tile {
   position: absolute;
