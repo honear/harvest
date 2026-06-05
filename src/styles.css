@@ -1102,6 +1102,11 @@ button:disabled {
   font-size: 11px;
   color: var(--ash);
 }
+/* when there's no progress text, collapse it so the status line stays
+   vertically centered in the floating info card */
+.progress-current:empty {
+  display: none;
+}
 
 /* ---- overlays / drawers ---- */
 .overlay {
