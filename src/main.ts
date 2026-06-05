@@ -464,17 +464,39 @@ function filterExcludes(e: DirEntry): boolean {
   return false;
 }
 
-const FOLDER_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M3 7.5a2 2 0 0 1 2-2h3.4a2 2 0 0 1 1.4.6l.9.9a2 2 0 0 0 1.4.6H19a2 2 0 0 1 2 2v6.9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5z"/></svg>`;
+const VIDEO_EXT = ["mov", "mp4", "mxf", "avi", "mts", "m4v", "braw", "r3d", "mkv", "wmv"];
+const AUDIO_EXT = ["wav", "aif", "aiff", "mp3", "flac", "m4a", "aac"];
+const IMAGE_EXT = ["jpg", "jpeg", "png", "cr3", "cr2", "arw", "dng", "nef", "tif", "tiff", "heic", "raf", "gpr", "gif"];
 
 function extColor(ext: string): string {
-  const video = ["mov", "mp4", "mxf", "avi", "mts", "m4v", "braw", "r3d", "mkv", "wmv"];
-  const audio = ["wav", "aif", "aiff", "mp3", "flac", "m4a", "aac"];
-  const image = ["jpg", "jpeg", "png", "cr3", "cr2", "arw", "dng", "nef", "tif", "tiff", "heic", "raf", "gpr", "gif"];
-  if (video.includes(ext)) return "#5b9be4";
-  if (audio.includes(ext)) return "#45b98c";
-  if (image.includes(ext)) return "#e58b4a";
+  if (VIDEO_EXT.includes(ext)) return "#5b9be4";
+  if (AUDIO_EXT.includes(ext)) return "#45b98c";
+  if (IMAGE_EXT.includes(ext)) return "#e58b4a";
   if (ext) return "#d6b34d";
   return "#8f99a5";
+}
+
+/// Category of a tile, for picking its watermark icon.
+function tileKind(ext: string, isDir: boolean): string {
+  if (isDir) return "folder";
+  if (VIDEO_EXT.includes(ext)) return "video";
+  if (AUDIO_EXT.includes(ext)) return "audio";
+  if (IMAGE_EXT.includes(ext)) return "image";
+  if (ext) return "doc";
+  return "file";
+}
+
+/// Centred watermark icons drawn on treemap tiles (hidden on small tiles).
+const TILE_ICONS: Record<string, string> = {
+  folder: `<path d="M3 7.5a2 2 0 0 1 2-2h3.4a2 2 0 0 1 1.4.6l.9.9a2 2 0 0 0 1.4.6H19a2 2 0 0 1 2 2v6.9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5z"/>`,
+  video: `<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M10 9.3v5.4l5-2.7z"/>`,
+  audio: `<path d="M9 17V5l10-2v12"/><circle cx="6" cy="17" r="3"/><circle cx="16" cy="15" r="3"/>`,
+  image: `<rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.9"/><path d="m4 17.5 5-5 4 4 3-3 4 4"/>`,
+  doc: `<path d="M13 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V9z"/><path d="M13 3v6h6"/><path d="M8.5 13.5h7M8.5 17h5"/>`,
+  file: `<path d="M13 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V9z"/><path d="M13 3v6h6"/>`,
+};
+function tileIconSvg(ext: string, isDir: boolean): string {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${TILE_ICONS[tileKind(ext, isDir)]}</svg>`;
 }
 
 function renderCrumbs() {
@@ -621,10 +643,11 @@ function renderTreemap() {
     // files are solid type-color.
     if (!e.isDir) div.style.background = extColor(e.ext);
     div.innerHTML = `<div class="tile-name">${e.name}${e.isDir ? "/" : ""}</div><div class="tile-size">${humanBytes(e.size)}</div>`;
-    if (e.isDir) {
+    // category watermark icon — only when the tile has room for it
+    if (p.w >= 56 && p.h >= 56) {
       const ic = document.createElement("div");
-      ic.className = "tile-folder-icon";
-      ic.innerHTML = FOLDER_ICON;
+      ic.className = "tile-icon";
+      ic.innerHTML = tileIconSvg(e.ext, e.isDir);
       div.appendChild(ic);
     }
     const why = filtered ? " · excluded by Options filter" : e.isDir ? " · click to open" : survey ? "" : " · click to exclude";

@@ -1699,24 +1699,29 @@ button:disabled {
   border-color: color-mix(in srgb, var(--mode-accent) 42%, var(--hairline-strong));
   backdrop-filter: blur(7px);
 }
-.tile-folder-icon {
+.tile-icon {
   position: absolute;
   inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--mode-accent);
-  opacity: 0.55;
+  color: rgba(0, 0, 0, 0.3);
   z-index: 0;
   pointer-events: none;
 }
-.tile-folder-icon svg {
-  width: 40%;
-  height: 40%;
-  max-width: 54px;
-  max-height: 54px;
+/* folders keep the accent-tinted icon; files use a dark watermark on the
+   solid colour tile */
+.tile.dir .tile-icon {
+  color: var(--mode-accent);
+  opacity: 0.55;
 }
-.tile.tiny .tile-folder-icon {
+.tile-icon svg {
+  width: 38%;
+  height: 38%;
+  max-width: 48px;
+  max-height: 48px;
+}
+.tile.tiny .tile-icon {
   display: none;
 }
 .tile .tile-name,
