@@ -27,7 +27,12 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
     "category": "Utility",
     "copyright": "© 2026 Rolando",
     "publisher": "Rolando",
