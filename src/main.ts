@@ -699,6 +699,8 @@ async function sowOpen(path: string) {
   if (token !== sowToken) return;
   sowListing = listing;
   renderTreemap();
+  // size readout now reuses the just-cached scan (no second disk walk)
+  if (sowMode === "sow") updateSowSize();
 }
 
 /// Switch what the center panel shows. The center is a dynamic panel that can
@@ -743,7 +745,8 @@ function openVisualizer(root: string, mode: "sow" | "survey") {
       ? "Click folders to explore; click files (or ✕) to exclude them from the transfer."
       : "Surveying disk usage. Click folders to explore.",
   );
-  if (mode === "sow") updateSowSize();
+  // The Sow scan (sowOpen) is the single authoritative walk that shows the
+  // progress bar; the size readout runs afterwards off the cached scan.
   sowOpen(root);
 }
 
