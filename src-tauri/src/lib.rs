@@ -24,7 +24,7 @@ struct Cancel(Arc<AtomicBool>);
 /// Caches the most-recently scanned source's file list so the live Sow readout
 /// can recompute the filtered total in-memory instead of re-walking the disk.
 #[derive(Default)]
-struct ScanCache(std::sync::Mutex<Option<(String, Vec<harvest_core::SourceFile>)>>);
+struct ScanCache(std::sync::Mutex<Option<(String, std::sync::Arc<Vec<harvest_core::SourceFile>>)>>);
 
 /// Free bytes, total bytes, and removable flag of the drive containing `path`.
 fn drive_space(path: &str) -> (u64, u64, bool) {
@@ -157,9 +157,11 @@ async fn transfer_size(req: CopyRequest, cache: tauri::State<'_, ScanCache>) -> 
     }
     // Miss: walk once, cache it, then sum.
     let src = cfg.source.clone();
-    let scanned = tauri::async_runtime::spawn_blocking(move || harvest_core::scan(&src).unwrap_or_default())
-        .await
-        .map_err(|e| e.to_string())?;
+    let scanned = std::sync::Arc::new(
+        tauri::async_runtime::spawn_blocking(move || harvest_core::scan(&src).unwrap_or_default())
+            .await
+            .map_err(|e| e.to_string())?,
+    );
     let result = sum(&scanned);
     *cache.0.lock().unwrap() = Some((key, scanned));
     Ok(result)
@@ -241,25 +243,29 @@ struct ImmAcc {
 /// sizes, each folder's nested children (for labeled mini-treemaps), and the
 /// extension breakdown for the whole subtree. Drill by calling again on a child.
 #[tauri::command]
-async fn scan_dir(path: String) -> Result<DirListing, String> {
+async fn scan_dir(path: String, cache: tauri::State<'_, ScanCache>) -> Result<DirListing, String> {
+    let base = PathBuf::from(&path);
+    let list = cached_or_scan(&base, &path, &cache).await?;
     tauri::async_runtime::spawn_blocking(move || {
-        let base = PathBuf::from(&path);
-        let list = harvest_core::scan(&base).map_err(|e| e.to_string())?;
         let mut total = 0u64;
         let mut imm: HashMap<String, ImmAcc> = HashMap::new();
         let mut exts: HashMap<String, (u64, u64)> = HashMap::new();
 
-        for f in &list {
+        for f in list.iter() {
+            // Path relative to the folder being viewed (the cached list is
+            // relative to the source root, so re-derive from the absolute path);
+            // also filters the cache down to this subtree.
+            let Ok(rel) = f.abs.strip_prefix(&base) else { continue };
             total += f.size;
             let ext = harvest_core::normalize_ext(
-                &f.rel.extension().map(|x| x.to_string_lossy().to_lowercase()).unwrap_or_default(),
+                &rel.extension().map(|x| x.to_string_lossy().to_lowercase()).unwrap_or_default(),
             );
             let cat = category(&ext);
             let et = exts.entry(ext.clone()).or_insert((0, 0));
             et.0 += f.size;
             et.1 += 1;
 
-            let mut comps = f.rel.components();
+            let mut comps = rel.components();
             let Some(c0) = comps.next() else { continue };
             let name = c0.as_os_str().to_string_lossy().to_string();
             let acc = imm.entry(name).or_default();
@@ -308,32 +314,59 @@ async fn scan_dir(path: String) -> Result<DirListing, String> {
         exts.sort_by(|a, b| b.bytes.cmp(&a.bytes));
         exts.truncate(14);
 
-        Ok(DirListing { path, total, entries, exts })
+        DirListing { path, total, entries, exts }
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+/// Return the scanned file list covering `base`: reuse the cached source scan
+/// when `base` is inside it (so drilling never re-walks the disk), otherwise
+/// walk the disk once and cache the result keyed by `base`.
+async fn cached_or_scan(
+    base: &std::path::Path,
+    key: &str,
+    cache: &tauri::State<'_, ScanCache>,
+) -> Result<std::sync::Arc<Vec<harvest_core::SourceFile>>, String> {
+    {
+        let guard = cache.0.lock().unwrap();
+        if let Some((root, list)) = guard.as_ref() {
+            if base.starts_with(root) {
+                return Ok(list.clone());
+            }
+        }
+    }
+    let b = base.to_path_buf();
+    let scanned = tauri::async_runtime::spawn_blocking(move || harvest_core::scan(&b))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    let arc = std::sync::Arc::new(scanned);
+    *cache.0.lock().unwrap() = Some((key.to_string(), arc.clone()));
+    Ok(arc)
 }
 
 /// Flatten a folder: every file underneath it as one list (no folders), each
 /// labeled by its path relative to `path`. Largest first, capped for rendering.
 #[tauri::command]
-async fn scan_flat(path: String) -> Result<DirListing, String> {
+async fn scan_flat(path: String, cache: tauri::State<'_, ScanCache>) -> Result<DirListing, String> {
+    let base = PathBuf::from(&path);
+    let list = cached_or_scan(&base, &path, &cache).await?;
     tauri::async_runtime::spawn_blocking(move || {
-        let base = PathBuf::from(&path);
-        let list = harvest_core::scan(&base).map_err(|e| e.to_string())?;
         let mut total = 0u64;
         let mut exts: HashMap<String, (u64, u64)> = HashMap::new();
-        let mut entries: Vec<DirEntry> = Vec::with_capacity(list.len());
-        for f in &list {
+        let mut entries: Vec<DirEntry> = Vec::new();
+        for f in list.iter() {
+            let Ok(rel) = f.abs.strip_prefix(&base) else { continue };
             total += f.size;
             let ext = harvest_core::normalize_ext(
-                &f.rel.extension().map(|x| x.to_string_lossy().to_lowercase()).unwrap_or_default(),
+                &rel.extension().map(|x| x.to_string_lossy().to_lowercase()).unwrap_or_default(),
             );
             let et = exts.entry(ext.clone()).or_insert((0, 0));
             et.0 += f.size;
             et.1 += 1;
             entries.push(DirEntry {
-                name: harvest_core::forward_slash(&f.rel),
+                name: harvest_core::forward_slash(rel),
                 path: f.abs.display().to_string(),
                 size: f.size,
                 is_dir: false,
@@ -350,10 +383,10 @@ async fn scan_flat(path: String) -> Result<DirListing, String> {
             .collect();
         exts.sort_by(|a, b| b.bytes.cmp(&a.bytes));
         exts.truncate(14);
-        Ok(DirListing { path, total, entries, exts })
+        DirListing { path, total, entries, exts }
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
 }
 
 /// Copy request sent from the UI.
