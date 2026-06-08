@@ -243,9 +243,9 @@ struct ImmAcc {
 /// sizes, each folder's nested children (for labeled mini-treemaps), and the
 /// extension breakdown for the whole subtree. Drill by calling again on a child.
 #[tauri::command]
-async fn scan_dir(path: String, cache: tauri::State<'_, ScanCache>) -> Result<DirListing, String> {
+async fn scan_dir(path: String, app: AppHandle, cache: tauri::State<'_, ScanCache>) -> Result<DirListing, String> {
     let base = PathBuf::from(&path);
-    let list = cached_or_scan(&base, &path, &cache).await?;
+    let list = cached_or_scan(&base, &path, &app, &cache).await?;
     tauri::async_runtime::spawn_blocking(move || {
         let mut total = 0u64;
         let mut imm: HashMap<String, ImmAcc> = HashMap::new();
@@ -326,6 +326,7 @@ async fn scan_dir(path: String, cache: tauri::State<'_, ScanCache>) -> Result<Di
 async fn cached_or_scan(
     base: &std::path::Path,
     key: &str,
+    app: &AppHandle,
     cache: &tauri::State<'_, ScanCache>,
 ) -> Result<std::sync::Arc<Vec<harvest_core::SourceFile>>, String> {
     {
@@ -336,11 +337,19 @@ async fn cached_or_scan(
             }
         }
     }
+    // Cache miss → the one disk walk; stream a live (files, bytes) count to the
+    // Sow loading view as it progresses.
     let b = base.to_path_buf();
-    let scanned = tauri::async_runtime::spawn_blocking(move || harvest_core::scan(&b))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())?;
+    let app = app.clone();
+    let scanned = tauri::async_runtime::spawn_blocking(move || {
+        harvest_core::scan_with(&b, &mut |files, bytes| {
+            let _ = app.emit("sow:progress", (files, bytes));
+        })
+        .map(|(files, _skipped)| files)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
     let arc = std::sync::Arc::new(scanned);
     *cache.0.lock().unwrap() = Some((key.to_string(), arc.clone()));
     Ok(arc)
@@ -349,9 +358,9 @@ async fn cached_or_scan(
 /// Flatten a folder: every file underneath it as one list (no folders), each
 /// labeled by its path relative to `path`. Largest first, capped for rendering.
 #[tauri::command]
-async fn scan_flat(path: String, cache: tauri::State<'_, ScanCache>) -> Result<DirListing, String> {
+async fn scan_flat(path: String, app: AppHandle, cache: tauri::State<'_, ScanCache>) -> Result<DirListing, String> {
     let base = PathBuf::from(&path);
-    let list = cached_or_scan(&base, &path, &cache).await?;
+    let list = cached_or_scan(&base, &path, &app, &cache).await?;
     tauri::async_runtime::spawn_blocking(move || {
         let mut total = 0u64;
         let mut exts: HashMap<String, (u64, u64)> = HashMap::new();

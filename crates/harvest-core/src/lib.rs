@@ -27,7 +27,7 @@ pub use run::{
     forward_slash, plan, run_harvest, run_verify, HarvestConfig, HarvestEvent, HarvestOutcome,
     HarvestPlan, JOURNAL_NAME,
 };
-pub use scan::{mtime_ns, scan, SourceFile};
+pub use scan::{mtime_ns, scan, scan_with, SourceFile};
 pub use template::{render as render_template, RenderCtx};
 
 /// 8 MiB streaming buffer — favors throughput on large media files.

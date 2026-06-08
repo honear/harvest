@@ -680,7 +680,7 @@ async function sowOpen(path: string) {
   renderCrumbs();
   const tm = $("treemap");
   // big folders take a while to walk — show an indeterminate loading bar
-  tm.innerHTML = `<div class="sow-loading"><div class="sow-loading-label">Scanning ${basename(path)}…</div><div class="loadbar"><div class="loadbar-fill"></div></div><div class="sow-loading-sub muted">Measuring sizes and contents</div></div>`;
+  tm.innerHTML = `<div class="sow-loading"><div class="sow-loading-label">Scanning ${basename(path)}…</div><div class="loadbar"><div class="loadbar-fill"></div></div><div class="sow-loading-sub muted" id="sow-progress">Measuring sizes and contents</div></div>`;
   const token = ++sowToken;
   let listing: DirListing;
   try {
@@ -1315,6 +1315,14 @@ window.addEventListener("DOMContentLoaded", async () => {
   } catch {
     /* not in Tauri (browser preview) */
   }
+
+  // Live file/byte count streamed from the source scan (first sweep only).
+  listen<[number, number]>("sow:progress", (e) => {
+    const el = document.getElementById("sow-progress");
+    if (!el) return;
+    const [files, bytes] = e.payload;
+    el.textContent = `Scanned ${files.toLocaleString()} files · ${humanBytes(bytes)}…`;
+  }).catch(() => {});
 
   // Show the real app version in the badge + About.
   try {
