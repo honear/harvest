@@ -15,7 +15,7 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 use crate::{
-    harvest_files, hash_file, journal, render_template, scan, to_mhl, to_sidecar, Filter,
+    harvest_files, hash_file, journal, render_template, scan_with, to_mhl, to_sidecar, Filter,
     HarvestOptions, HashAlgo, Journal, JournalHeader, JournalRecord, ManifestEntry, RenderCtx,
     SourceFile, JOURNAL_VERSION,
 };
@@ -71,6 +71,9 @@ pub enum HarvestEvent {
 pub struct HarvestOutcome {
     pub copied: usize,
     pub skipped: usize,
+    /// Files that couldn't be read during the source scan (permission denied,
+    /// locked, unreadable media) and were left out of the transfer.
+    pub unreadable: usize,
     pub copied_bytes: u64,
     pub verify_failures: Vec<String>,
     pub errors: Vec<String>,
@@ -127,8 +130,8 @@ fn default_journal_path(dests: &[PathBuf]) -> PathBuf {
 
 /// Scan the source, apply filters, and render templated destination paths.
 /// Shared by [`run_harvest`] and [`plan`].
-fn scan_filter_template(cfg: &HarvestConfig) -> Result<Vec<SourceFile>> {
-    let mut all_files = scan(&cfg.source).context("scanning source")?;
+fn scan_filter_template(cfg: &HarvestConfig) -> Result<(Vec<SourceFile>, usize)> {
+    let (mut all_files, unreadable) = scan_with(&cfg.source, &mut |_, _| {}).context("scanning source")?;
     if !cfg.filter.is_empty() {
         all_files.retain(|f| cfg.filter.accepts(f));
     }
@@ -152,7 +155,7 @@ fn scan_filter_template(cfg: &HarvestConfig) -> Result<Vec<SourceFile>> {
             f.dest_rel = Some(dr);
         }
     }
-    Ok(all_files)
+    Ok((all_files, unreadable as usize))
 }
 
 /// A read-only pre-flight summary: what a harvest *would* do, without copying.
@@ -175,7 +178,7 @@ pub fn plan(cfg: &HarvestConfig) -> Result<HarvestPlan> {
     if !cfg.source.exists() {
         bail!("source does not exist: {}", cfg.source.display());
     }
-    let files = scan_filter_template(cfg)?;
+    let (files, _) = scan_filter_template(cfg)?;
     let mut p = HarvestPlan { total: files.len(), ..Default::default() };
     for f in &files {
         let target_rel = f.dest_rel.as_deref().unwrap_or(&f.rel);
@@ -229,7 +232,7 @@ pub fn run_harvest(
         bail!("at least one destination is required");
     }
 
-    let all_files = scan_filter_template(cfg)?;
+    let (all_files, unreadable) = scan_filter_template(cfg)?;
     let total_scanned = all_files.len();
     let kept = all_files.len();
 
@@ -345,6 +348,7 @@ pub fn run_harvest(
     let mut outcome = HarvestOutcome {
         copied: results.iter().filter(|r| r.is_ok()).count(),
         skipped: total_skipped,
+        unreadable,
         copied_bytes: done_bytes.load(Ordering::Relaxed),
         verify_failures,
         errors,
@@ -403,7 +407,7 @@ pub fn run_verify(
         bail!("at least one destination is required");
     }
 
-    let files = scan_filter_template(cfg)?;
+    let (files, unreadable) = scan_filter_template(cfg)?;
     let total = files.len();
     let total_bytes: u64 = files.iter().map(|f| f.size).sum();
     on_event(HarvestEvent::Planned {
@@ -459,6 +463,7 @@ pub fn run_verify(
     Ok(HarvestOutcome {
         copied: results.iter().filter(|x| **x).count(),
         skipped: 0,
+        unreadable,
         copied_bytes: done_bytes.load(Ordering::Relaxed),
         verify_failures: failures.into_inner().unwrap(),
         errors: Vec::new(),

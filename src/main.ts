@@ -60,6 +60,7 @@ interface Done {
   success: boolean;
   copied: number;
   skipped: number;
+  unreadable: number;
   copiedBytes: number;
   verifyFailures: string[];
   errors: string[];
@@ -1062,7 +1063,7 @@ async function runQueue() {
   ($("result-overlay") as HTMLElement).hidden = true;
 
   const agg = {
-    copied: 0, skipped: 0, bytes: 0,
+    copied: 0, skipped: 0, unreadable: 0, bytes: 0,
     errors: [] as string[], fails: [] as string[],
     manifest: null as string | null, journal: "", cancelled: false, ejected: false,
   };
@@ -1072,6 +1073,7 @@ async function runQueue() {
       const d = await harvestOne(sources[i]);
       agg.copied += d.copied;
       agg.skipped += d.skipped;
+      agg.unreadable += d.unreadable;
       agg.bytes += d.copiedBytes;
       agg.errors.push(...d.errors);
       agg.fails.push(...d.verifyFailures);
@@ -1085,7 +1087,7 @@ async function runQueue() {
     }
     const success = !agg.cancelled && agg.errors.length === 0 && agg.fails.length === 0;
     showResult({
-      success, copied: agg.copied, skipped: agg.skipped, copiedBytes: agg.bytes,
+      success, copied: agg.copied, skipped: agg.skipped, unreadable: agg.unreadable, copiedBytes: agg.bytes,
       verifyFailures: agg.fails, errors: agg.errors,
       manifestPath: agg.manifest, journalPath: agg.journal, cancelled: agg.cancelled, ejected: agg.ejected,
     });
@@ -1137,7 +1139,7 @@ async function runVerify() {
     const success = !agg.cancelled && agg.errors.length === 0 && agg.fails.length === 0;
     showResult(
       {
-        success, copied: agg.ok, skipped: 0, copiedBytes: agg.bytes,
+        success, copied: agg.ok, skipped: 0, unreadable: 0, copiedBytes: agg.bytes,
         verifyFailures: agg.fails, errors: agg.errors,
         manifestPath: null, journalPath: "", cancelled: agg.cancelled, ejected: false,
       },
@@ -1167,7 +1169,9 @@ function showResult(d: Done, opts: { verify?: boolean } = {}) {
         ? "✓ Harvest complete"
         : "✗ Finished with problems";
     $("result-summary").innerHTML = d.success
-      ? `${d.copied} copied, ${d.skipped} already present — <strong>${humanBytes(d.copiedBytes)}</strong> verified across ${destinations.length} destination(s).`
+      ? `${d.copied} copied, ${d.skipped} already present — <strong>${humanBytes(d.copiedBytes)}</strong> verified across ${destinations.length} destination(s).${
+          d.unreadable ? ` <span class="muted">${d.unreadable} unreadable file(s) skipped.</span>` : ""
+        }`
       : d.cancelled
         ? `Stopped after ${d.copied} file(s) copied. Re-run with Resume to continue.`
         : `${d.errors.length} error(s), ${d.verifyFailures.length} verification failure(s).`;
@@ -1471,7 +1475,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       const r = resolveCurrent;
       resolveCurrent = null;
       r({
-        success: false, copied: 0, skipped: 0, copiedBytes: 0,
+        success: false, copied: 0, skipped: 0, unreadable: 0, copiedBytes: 0,
         verifyFailures: [], errors: [String(e.payload)],
         manifestPath: null, journalPath: "", cancelled: false, ejected: false,
       });
