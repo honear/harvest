@@ -163,6 +163,9 @@ let sowMode: "sow" | "survey" = "sow";
 let sowLayout: "grid" | "list" = "grid";
 let sowFlat = false;
 let sowToken = 0;
+/// Known total bytes of the source being explored (from inspect_path), used to
+/// drive the scan progress bar from 0→100%. 0 when unknown (e.g. Survey).
+let sowScanTotalBytes = 0;
 
 function renderColumn(role: "source" | "dest") {
   const items = role === "source" ? sources : destinations;
@@ -680,8 +683,10 @@ async function sowOpen(path: string) {
   sowPath = path;
   renderCrumbs();
   const tm = $("treemap");
-  // big folders take a while to walk — show an indeterminate loading bar
-  tm.innerHTML = `<div class="sow-loading"><div class="sow-loading-label">Scanning ${basename(path)}…</div><div class="loadbar"><div class="loadbar-fill"></div></div><div class="sow-loading-sub muted" id="sow-progress">Measuring sizes and contents</div></div>`;
+  // Known source size → a real 0→100% bar; unknown (Survey) → indeterminate.
+  sowScanTotalBytes = infoCache[sowSource]?.bytes ?? 0;
+  const det = sowScanTotalBytes > 0;
+  tm.innerHTML = `<div class="sow-loading"><div class="sow-loading-label">Scanning ${basename(path)}…</div><div class="loadbar${det ? " is-determinate" : ""}"><div class="loadbar-fill"></div></div><div class="sow-loading-sub muted" id="sow-progress">${det ? "0%" : "Measuring sizes and contents"}</div></div>`;
   const token = ++sowToken;
   let listing: DirListing;
   try {
@@ -1320,12 +1325,20 @@ window.addEventListener("DOMContentLoaded", async () => {
     /* not in Tauri (browser preview) */
   }
 
-  // Live file/byte count streamed from the source scan (first sweep only).
+  // Live count streamed from the source scan (first sweep only). When the
+  // source's total size is known, also drive the bar from 0→100%.
   listen<[number, number]>("sow:progress", (e) => {
     const el = document.getElementById("sow-progress");
     if (!el) return;
     const [files, bytes] = e.payload;
-    el.textContent = `Scanned ${files.toLocaleString()} files · ${humanBytes(bytes)}…`;
+    if (sowScanTotalBytes > 0) {
+      const pct = Math.min(100, Math.round((bytes / sowScanTotalBytes) * 100));
+      const fill = document.querySelector<HTMLElement>(".sow-loading .loadbar-fill");
+      if (fill) fill.style.width = `${pct}%`;
+      el.textContent = `Scanned ${files.toLocaleString()} files · ${humanBytes(bytes)} · ${pct}%`;
+    } else {
+      el.textContent = `Scanned ${files.toLocaleString()} files · ${humanBytes(bytes)}…`;
+    }
   }).catch(() => {});
 
   // Show the real app version in the badge + About.

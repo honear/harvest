@@ -1906,6 +1906,18 @@ button:disabled {
   background: linear-gradient(90deg, transparent, var(--mode-accent), transparent);
   animation: loadslide 1.1s ease-in-out infinite;
 }
+/* determinate variant: a real 0→100% fill, driven by JS (no slide animation) */
+.loadbar.is-determinate {
+  width: 240px;
+}
+.loadbar.is-determinate .loadbar-fill {
+  left: 0;
+  width: 0;
+  background: var(--mode-accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--mode-accent) 55%, transparent);
+  animation: none;
+  transition: width 0.25s ease;
+}
 @keyframes loadslide {
   0% {
     left: -40%;
