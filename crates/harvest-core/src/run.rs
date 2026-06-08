@@ -131,7 +131,9 @@ fn default_journal_path(dests: &[PathBuf]) -> PathBuf {
 /// Scan the source, apply filters, and render templated destination paths.
 /// Shared by [`run_harvest`] and [`plan`].
 fn scan_filter_template(cfg: &HarvestConfig) -> Result<(Vec<SourceFile>, usize)> {
-    let (mut all_files, unreadable) = scan_with(&cfg.source, &mut |_, _| {}).context("scanning source")?;
+    static NEVER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    let (mut all_files, unreadable) =
+        scan_with(&cfg.source, &NEVER, &mut |_, _| {}).context("scanning source")?;
     if !cfg.filter.is_empty() {
         all_files.retain(|f| cfg.filter.accepts(f));
     }

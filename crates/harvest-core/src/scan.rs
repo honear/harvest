@@ -3,6 +3,7 @@
 
 use std::fs::Metadata;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::UNIX_EPOCH;
 
 use anyhow::{anyhow, Context, Result};
@@ -38,15 +39,18 @@ pub fn mtime_ns(meta: &Metadata) -> i128 {
 /// Enumerate all regular files under `source`. If `source` is a single file,
 /// the result is that one file (relative path = its file name).
 pub fn scan(source: &Path) -> Result<Vec<SourceFile>> {
-    Ok(scan_with(source, &mut |_, _| {})?.0)
+    static NEVER: AtomicBool = AtomicBool::new(false);
+    Ok(scan_with(source, &NEVER, &mut |_, _| {})?.0)
 }
 
 /// Like [`scan`], but reports running progress (files found, bytes so far) via
 /// `progress` (called roughly every 512 files and once at the end) and returns
-/// the number of entries skipped because they couldn't be read. Used by the Sow
-/// visualizer (live scan count) and the copy path (skipped-files reporting).
+/// the number of entries skipped because they couldn't be read. If `cancel`
+/// flips to true mid-walk it bails with an error. Used by the Sow visualizer
+/// (live scan count + cancel) and the copy path (skipped-files reporting).
 pub fn scan_with(
     source: &Path,
+    cancel: &AtomicBool,
     progress: &mut dyn FnMut(u64, u64),
 ) -> Result<(Vec<SourceFile>, u64)> {
     let mut files = Vec::new();
@@ -71,6 +75,9 @@ pub fn scan_with(
     }
 
     for entry in WalkDir::new(source) {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(anyhow!("scan cancelled"));
+        }
         let entry = match entry {
             Ok(e) => e,
             // A failure at the root (depth 0) means the source itself is

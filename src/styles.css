@@ -1889,6 +1889,11 @@ button:disabled {
 .sow-loading-sub {
   font-size: 11.5px;
 }
+.sow-cancel {
+  margin-top: var(--s2);
+  font-size: 11.5px;
+  padding: 5px 16px;
+}
 .loadbar {
   position: relative;
   width: 220px;

@@ -210,7 +210,15 @@ function renderColumn(role: "source" | "dest") {
         pills.className = "drop-item-pills";
         const p1 = document.createElement("span");
         p1.className = "stat-pill";
-        p1.textContent = `${ci.files.toLocaleString()} files · ${humanBytes(ci.bytes)}`;
+        // Folder size is only known once scanned (on first Sow). Until then show
+        // the drive's free/total — useful immediately, especially for a dest.
+        if (ci.bytes > 0) {
+          p1.textContent = `${ci.files.toLocaleString()} files · ${humanBytes(ci.bytes)}`;
+        } else if (ci.driveTotal > 0) {
+          p1.textContent = `${humanBytes(ci.freeSpace)} free of ${humanBytes(ci.driveTotal)}`;
+        } else {
+          p1.textContent = "Not yet scanned";
+        }
         pills.append(p1);
         info.appendChild(pills);
       }
@@ -612,8 +620,10 @@ function renderList(tm: HTMLElement, entries: DirEntry[]) {
 
 function renderTreemap() {
   const tm = $("treemap");
-  tm.innerHTML = "";
+  // A scan is in flight (no listing yet) — leave the loading view untouched so
+  // toggling List/Grid or excludes mid-scan doesn't wipe the progress bar.
   if (!sowListing) return;
+  tm.innerHTML = "";
   const entries = sowListing.entries.filter((e) => e.size > 0);
   renderExts();
   if (entries.length === 0) {
@@ -683,22 +693,45 @@ async function sowOpen(path: string) {
   sowPath = path;
   renderCrumbs();
   const tm = $("treemap");
-  // Known source size → a real 0→100% bar; unknown (Survey) → indeterminate.
-  sowScanTotalBytes = infoCache[sowSource]?.bytes ?? 0;
+  // A real 0→100% bar needs a target before the walk finishes. Prefer the
+  // source's measured size (known after a prior scan); otherwise use the
+  // drive's used space, which fills smoothly for a source that fills its drive.
+  const info = infoCache[sowSource];
+  const driveUsed = info ? Math.max(0, info.driveTotal - info.freeSpace) : 0;
+  sowScanTotalBytes = info && info.bytes > 0 ? info.bytes : driveUsed;
   const det = sowScanTotalBytes > 0;
-  tm.innerHTML = `<div class="sow-loading"><div class="sow-loading-label">Scanning ${basename(path)}…</div><div class="loadbar${det ? " is-determinate" : ""}"><div class="loadbar-fill"></div></div><div class="sow-loading-sub muted" id="sow-progress">${det ? "0%" : "Measuring sizes and contents"}</div></div>`;
+  sowListing = null; // mark "scanning" so renderTreemap leaves this view alone
+  tm.innerHTML =
+    `<div class="sow-loading">` +
+    `<div class="sow-loading-label">Scanning ${basename(path)}…</div>` +
+    `<div class="loadbar${det ? " is-determinate" : ""}"><div class="loadbar-fill"></div></div>` +
+    `<div class="sow-loading-sub muted" id="sow-progress">${det ? "0%" : "Measuring sizes and contents"}</div>` +
+    `<button class="ghost sow-cancel" id="sow-cancel" type="button">Cancel</button>` +
+    `</div>`;
   const token = ++sowToken;
+  const cancelBtn = document.getElementById("sow-cancel");
+  if (cancelBtn) cancelBtn.onclick = () => void invoke("cancel_scan").catch(() => {});
   let listing: DirListing;
   try {
     listing = await invoke<DirListing>(sowFlat ? "scan_flat" : "scan_dir", { path });
   } catch (e) {
-    if (token === sowToken) tm.innerHTML = `<div class="sow-hint">Could not scan: ${e}</div>`;
+    if (token !== sowToken) return;
+    tm.innerHTML = /cancel/i.test(String(e))
+      ? `<div class="sow-hint">Scan cancelled.</div>`
+      : `<div class="sow-hint">Could not scan: ${e}</div>`;
     return;
   }
   // a newer scan started (user drilled again) — drop this stale result
   if (token !== sowToken) return;
   sowListing = listing;
   renderTreemap();
+  // First scan of the whole source just finished → record its real size on the
+  // source card (adding a source no longer walks the disk eagerly).
+  if (path === sowSource && info) {
+    const files = listing.exts.reduce((s, x) => s + x.files, 0);
+    infoCache[sowSource] = { ...info, files, bytes: listing.total };
+    renderColumn("source");
+  }
   // size readout now reuses the just-cached scan (no second disk walk)
   if (sowMode === "sow") updateSowSize();
 }

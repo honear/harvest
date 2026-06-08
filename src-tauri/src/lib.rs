@@ -26,6 +26,15 @@ struct Cancel(Arc<AtomicBool>);
 #[derive(Default)]
 struct ScanCache(std::sync::Mutex<Option<(String, std::sync::Arc<Vec<harvest_core::SourceFile>>)>>);
 
+/// Coordinates Sow disk walks: `gate` ensures only one walk runs at a time (a
+/// second viewer waits and then reuses the cached result instead of starting a
+/// duplicate walk), and `cancel` lets the UI abort the in-flight sweep.
+#[derive(Default)]
+struct ScanCoord {
+    gate: tauri::async_runtime::Mutex<()>,
+    cancel: Arc<AtomicBool>,
+}
+
 /// Free bytes, total bytes, and removable flag of the drive containing `path`.
 fn drive_space(path: &str) -> (u64, u64, bool) {
     let disks = sysinfo::Disks::new_with_refreshed_list();
@@ -104,22 +113,20 @@ struct PathInfo {
     removable: bool,
 }
 
-/// Count the files/bytes under a folder and report the containing drive's
-/// free/total space. Runs off the UI thread.
+/// Report the containing drive's free/total space for a freshly added folder.
+/// Deliberately does NOT walk the tree — that single sweep is deferred to the
+/// first Sow open (`scan_dir`), so adding a big source is instant. `files`/
+/// `bytes` come back 0 (unknown) and are filled in once the source is scanned.
 #[tauri::command]
-async fn inspect_path(path: String) -> PathInfo {
-    tauri::async_runtime::spawn_blocking(move || {
-        let p = PathBuf::from(&path);
-        let (mut files, mut bytes) = (0u64, 0u64);
-        if let Ok(list) = harvest_core::scan(&p) {
-            files = list.len() as u64;
-            bytes = list.iter().map(|f| f.size).sum();
-        }
-        let (free_space, drive_total, removable) = drive_space(&path);
-        PathInfo { files, bytes, free_space, drive_total, removable }
-    })
-    .await
-    .unwrap_or(PathInfo { files: 0, bytes: 0, free_space: 0, drive_total: 0, removable: false })
+fn inspect_path(path: String) -> PathInfo {
+    let (free_space, drive_total, removable) = drive_space(&path);
+    PathInfo { files: 0, bytes: 0, free_space, drive_total, removable }
+}
+
+/// Abort the in-flight Sow sweep, if any. The walk polls this flag and bails.
+#[tauri::command]
+fn cancel_scan(coord: State<'_, ScanCoord>) {
+    coord.cancel.store(true, Ordering::Release);
 }
 
 /// Files + bytes that a transfer would include for one source, after all
@@ -132,39 +139,27 @@ struct SizeInfo {
 }
 
 #[tauri::command]
-async fn transfer_size(req: CopyRequest, cache: tauri::State<'_, ScanCache>) -> Result<SizeInfo, String> {
+async fn transfer_size(
+    req: CopyRequest,
+    app: AppHandle,
+    cache: tauri::State<'_, ScanCache>,
+    coord: tauri::State<'_, ScanCoord>,
+) -> Result<SizeInfo, String> {
     let cfg = build_config(req).map_err(|e| format!("{e:#}"))?;
-    let key = cfg.source.display().to_string();
-    let sum = |list: &[harvest_core::SourceFile]| {
-        let mut files = 0u64;
-        let mut bytes = 0u64;
-        for f in list {
-            if cfg.filter.accepts(f) {
-                files += 1;
-                bytes += f.size;
-            }
-        }
-        SizeInfo { files, bytes }
-    };
-    // Cache hit: recompute from the in-memory list (no disk walk).
-    {
-        let guard = cache.0.lock().unwrap();
-        if let Some((s, list)) = guard.as_ref() {
-            if *s == key {
-                return Ok(sum(list));
-            }
+    let base = cfg.source.clone();
+    let key = base.display().to_string();
+    // Reuse the one shared sweep (waits for it if it's in flight) rather than
+    // walking the disk a second time.
+    let list = cached_or_scan(&base, &key, &app, &cache, &coord).await?;
+    let mut files = 0u64;
+    let mut bytes = 0u64;
+    for f in list.iter() {
+        if cfg.filter.accepts(f) {
+            files += 1;
+            bytes += f.size;
         }
     }
-    // Miss: walk once, cache it, then sum.
-    let src = cfg.source.clone();
-    let scanned = std::sync::Arc::new(
-        tauri::async_runtime::spawn_blocking(move || harvest_core::scan(&src).unwrap_or_default())
-            .await
-            .map_err(|e| e.to_string())?,
-    );
-    let result = sum(&scanned);
-    *cache.0.lock().unwrap() = Some((key, scanned));
-    Ok(result)
+    Ok(SizeInfo { files, bytes })
 }
 
 /// File-type category index (0=video,1=audio,2=image,3=other).
@@ -243,9 +238,9 @@ struct ImmAcc {
 /// sizes, each folder's nested children (for labeled mini-treemaps), and the
 /// extension breakdown for the whole subtree. Drill by calling again on a child.
 #[tauri::command]
-async fn scan_dir(path: String, app: AppHandle, cache: tauri::State<'_, ScanCache>) -> Result<DirListing, String> {
+async fn scan_dir(path: String, app: AppHandle, cache: tauri::State<'_, ScanCache>, coord: tauri::State<'_, ScanCoord>) -> Result<DirListing, String> {
     let base = PathBuf::from(&path);
-    let list = cached_or_scan(&base, &path, &app, &cache).await?;
+    let list = cached_or_scan(&base, &path, &app, &cache, &coord).await?;
     tauri::async_runtime::spawn_blocking(move || {
         let mut total = 0u64;
         let mut imm: HashMap<String, ImmAcc> = HashMap::new();
@@ -328,21 +323,27 @@ async fn cached_or_scan(
     key: &str,
     app: &AppHandle,
     cache: &tauri::State<'_, ScanCache>,
+    coord: &tauri::State<'_, ScanCoord>,
 ) -> Result<std::sync::Arc<Vec<harvest_core::SourceFile>>, String> {
-    {
-        let guard = cache.0.lock().unwrap();
-        if let Some((root, list)) = guard.as_ref() {
-            if base.starts_with(root) {
-                return Ok(list.clone());
-            }
-        }
+    // Fast path: already scanned this session.
+    if let Some(hit) = cache_lookup(cache, base) {
+        return Ok(hit);
+    }
+    // Serialize walks: a concurrent caller (e.g. the size readout racing the
+    // Sow open) waits here, then finds the cache filled by the first walk
+    // instead of launching a duplicate disk sweep.
+    let _gate = coord.gate.lock().await;
+    if let Some(hit) = cache_lookup(cache, base) {
+        return Ok(hit);
     }
     // Cache miss → the one disk walk; stream a live (files, bytes) count to the
-    // Sow loading view as it progresses.
+    // Sow loading view as it progresses, honoring cancellation.
+    coord.cancel.store(false, Ordering::Release);
+    let cancel = coord.cancel.clone();
     let b = base.to_path_buf();
     let app = app.clone();
     let scanned = tauri::async_runtime::spawn_blocking(move || {
-        harvest_core::scan_with(&b, &mut |files, bytes| {
+        harvest_core::scan_with(&b, &cancel, &mut |files, bytes| {
             let _ = app.emit("sow:progress", (files, bytes));
         })
         .map(|(files, _skipped)| files)
@@ -355,12 +356,22 @@ async fn cached_or_scan(
     Ok(arc)
 }
 
+/// Return the cached file list if `base` falls inside the cached root.
+fn cache_lookup(
+    cache: &tauri::State<'_, ScanCache>,
+    base: &std::path::Path,
+) -> Option<std::sync::Arc<Vec<harvest_core::SourceFile>>> {
+    let guard = cache.0.lock().unwrap();
+    let (root, list) = guard.as_ref()?;
+    base.starts_with(root).then(|| list.clone())
+}
+
 /// Flatten a folder: every file underneath it as one list (no folders), each
 /// labeled by its path relative to `path`. Largest first, capped for rendering.
 #[tauri::command]
-async fn scan_flat(path: String, app: AppHandle, cache: tauri::State<'_, ScanCache>) -> Result<DirListing, String> {
+async fn scan_flat(path: String, app: AppHandle, cache: tauri::State<'_, ScanCache>, coord: tauri::State<'_, ScanCoord>) -> Result<DirListing, String> {
     let base = PathBuf::from(&path);
-    let list = cached_or_scan(&base, &path, &app, &cache).await?;
+    let list = cached_or_scan(&base, &path, &app, &cache, &coord).await?;
     tauri::async_runtime::spawn_blocking(move || {
         let mut total = 0u64;
         let mut exts: HashMap<String, (u64, u64)> = HashMap::new();
@@ -933,11 +944,13 @@ pub fn run() {
         )
         .manage(Cancel::default())
         .manage(ScanCache::default())
+        .manage(ScanCoord::default())
         .invoke_handler(tauri::generate_handler![
             inspect_path,
             scan_dir,
             scan_flat,
             transfer_size,
+            cancel_scan,
             plan_harvest,
             start_harvest,
             verify_harvest,
