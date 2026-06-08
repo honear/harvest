@@ -56,14 +56,29 @@ pub fn scan(source: &Path) -> Result<Vec<SourceFile>> {
     }
 
     for entry in WalkDir::new(source) {
-        let entry = entry.with_context(|| format!("walking {}", source.display()))?;
+        let entry = match entry {
+            Ok(e) => e,
+            // A failure at the root (depth 0) means the source itself is
+            // unreadable — e.g. an empty card-reader slot like A:\ with no
+            // media — so surface a clear error instead of "walking A:\".
+            Err(err) if err.depth() == 0 => {
+                let why = err
+                    .io_error()
+                    .map(|e| e.to_string())
+                    .unwrap_or_else(|| err.to_string());
+                return Err(anyhow!("cannot read {}: {}", source.display(), why));
+            }
+            // Deeper failures (permission denied, locked files, System Volume
+            // Information, …) are skipped so one bad entry can't fail the scan.
+            Err(_) => continue,
+        };
         if entry.file_type().is_file() {
             let abs = entry.path().to_path_buf();
             let rel = abs
                 .strip_prefix(source)
                 .with_context(|| format!("relativizing {}", abs.display()))?
                 .to_path_buf();
-            let meta = entry.metadata()?;
+            let Ok(meta) = entry.metadata() else { continue };
             files.push(SourceFile {
                 abs,
                 rel,
